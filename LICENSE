@@ -1,0 +1,8 @@
+killersheep.nvim uses the Vim license, like the original Killersheep game by
+Bram Moolenaar (https://github.com/vim/killersheep).
+
+You can find the text here:
+https://github.com/vim/vim/blob/master/runtime/doc/uganda.txt
+
+It basically means you can copy the files as you like and also re-distribute
+them, so long as you keep the license.
