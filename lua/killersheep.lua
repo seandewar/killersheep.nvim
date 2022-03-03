@@ -76,13 +76,45 @@ local function play_sound(name)
   end
 end
 
+local function open_float(lines, config)
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, true, lines)
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].modifiable = false
+
+  local width = 0
+  for _, line in ipairs(lines) do
+    width = math.max(width, #line)
+  end
+  config = vim.tbl_extend("keep", config or {}, {
+    relative = "editor",
+    border = "single",
+    style = "minimal",
+    width = width,
+    height = #lines,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - #lines) / 2),
+  })
+
+  local win = api.nvim_open_win(buf, true, config)
+  return buf, win
+end
+
 local function countdown()
-  -- TODO
+  local buf, win = open_float {
+    "",
+    "",
+    "    Get Ready!    ",
+    "",
+    "",
+  }
+
+  -- local blink_timer = loop.new_timer()
+  -- blink_timer:start(0, 300, vim.schedule_wrap(function() end))
 end
 
 local function intro()
-  local buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(buf, 0, -1, true, {
+  local buf, win = open_float {
     "",
     "    The sheep are out to get you!",
     "",
@@ -92,11 +124,9 @@ local function intro()
     "   <Space>    fire",
     "    <Esc>     quit",
     "",
-    " Now press  s  to start or  x  to exit",
-  })
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].modifiable = false
-
+    " Now press  s  to start or  x  to exit ",
+    "",
+  }
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 1, 4, 33)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 4, 6, 7)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 5, 6, 7)
@@ -104,17 +134,6 @@ local function intro()
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 7, 4, 9)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 12, 13)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 28, 29)
-
-  local width, height = 39, 11
-  local win = api.nvim_open_win(buf, true, {
-    relative = "editor",
-    border = "single",
-    style = "minimal",
-    width = width,
-    height = height,
-    col = math.floor((vim.o.columns - width) / 2),
-    row = math.floor((vim.o.lines - height) / 2),
-  })
 
   local hl_ranges = {
     { 4, 7 },
@@ -145,7 +164,6 @@ local function intro()
 
   play_music "music"
   local augroup = api.nvim_create_augroup("killersheep.intro", {})
-
   local function close()
     stop_music()
     hl_timer:stop()
