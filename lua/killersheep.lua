@@ -8,7 +8,6 @@ local ns = api.nvim_create_namespace "killersheep"
 local HIGHLIGHTS = {
   SheepTitle = { cterm = { bold = true }, bold = true },
   introHl = { ctermbg = "cyan", bg = "cyan" },
-
   KillerCannon = { ctermbg = "blue", bg = "blue" },
   KillerBullet = { ctermbg = "red", bg = "red" },
   KillerSheep = {
@@ -119,8 +118,8 @@ local function open_float(lines, config, on_close)
     style = "minimal",
     width = width,
     height = #lines,
-    col = math.floor((vim.o.columns - width) / 2),
-    row = math.floor((vim.o.lines - #lines) / 2),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+    row = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - #lines) / 2)),
   })
   local win = api.nvim_open_win(buf, true, config)
 
@@ -182,6 +181,32 @@ local SHEEP_SPRITES = {
     "        ||    ||",
   },
 }
+local SHEEP_SPRITE_COLS = {}
+for i, sprite in ipairs(SHEEP_SPRITES) do
+  SHEEP_SPRITE_COLS[i] = 0
+  for _, line in ipairs(sprite) do
+    SHEEP_SPRITE_COLS[i] = math.max(SHEEP_SPRITE_COLS[i], #line)
+  end
+end
+
+local sheep_sprite_bufs = {}
+local function create_sheep_sprite_bufs()
+  for _, lines in ipairs(SHEEP_SPRITES) do
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_lines(buf, 0, -1, true, lines)
+    vim.bo[buf].modifiable = false
+    sheep_sprite_bufs[#sheep_sprite_bufs + 1] = buf
+  end
+end
+
+local function del_sheep_sprite_bufs()
+  for _, buf in ipairs(sheep_sprite_bufs) do
+    if api.nvim_buf_is_valid(buf) then
+      api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+  sheep_sprite_bufs = {}
+end
 
 local function level(num)
   local _, level_win = open_float({ " Level " .. num .. " " }, { row = 0 })
@@ -204,16 +229,56 @@ local function level(num)
   vim.wo[bullet_win].winhighlight =
     "NormalFloat:KillerBullet,FloatBorder:KillerBullet"
 
-  local sheep_win
-  _, sheep_win = open_float(SHEEP_SPRITES[1], { border = "none", zindex = 90 })
-  vim.wo[sheep_win].winhighlight =
-    "NormalFloat:KillerSheep,FloatBorder:KillerSheep"
+  local sheeps = {}
+  local function update_sheep_win(sheep)
+    api.nvim_win_set_config(sheep.win, {
+      relative = "editor",
+      row = sheep.row,
+      col = sheep.col,
+      width = SHEEP_SPRITE_COLS[sheep.sprite_index],
+      height = #SHEEP_SPRITES[sheep.sprite_index],
+    })
+    api.nvim_win_set_buf(sheep.win, sheep_sprite_bufs[sheep.sprite_index])
+  end
+
+  local function place_sheep(row, col, hl)
+    -- config will be given proper values by update_sheep_win below
+    local win = api.nvim_open_win(sheep_sprite_bufs[1], false, {
+      relative = "editor",
+      style = "minimal",
+      border = "none",
+      zindex = 90,
+      row = 0,
+      col = 0,
+      width = 1,
+      height = 1,
+    })
+    vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(hl, hl)
+    sheeps[#sheeps + 1] = { win = win, sprite_index = 1, row = row, col = col }
+    update_sheep_win(sheeps[#sheeps])
+  end
+
+  place_sheep(10, 10, "KillerSheep")
+  local t = loop.new_timer()
+  t:start(
+    150,
+    150,
+    vim.schedule_wrap(function()
+      sheeps[1].sprite_index = 1 + (sheeps[1].sprite_index % #SHEEP_SPRITES)
+      update_sheep_win(sheeps[1])
+    end)
+  )
 
   local function close()
     api.nvim_win_close(level_win, true)
     api.nvim_win_close(cannon_win, true)
     api.nvim_win_close(bullet_win, true)
-    api.nvim_win_close(sheep_win, true)
+    for _, sheep in ipairs(sheeps) do
+      if api.nvim_win_is_valid(sheep.win) then
+        api.nvim_win_close(sheep.win, true)
+      end
+    end
+    del_sheep_sprite_bufs()
   end
 end
 
@@ -322,6 +387,7 @@ local function intro()
 
   local function start()
     close()
+    create_sheep_sprite_bufs()
     countdown()
   end
   keymap.set("n", "s", start, { buffer = buf })
