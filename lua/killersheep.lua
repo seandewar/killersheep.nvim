@@ -4,8 +4,11 @@ local keymap = vim.keymap
 local loop = vim.loop
 
 local ns = api.nvim_create_namespace "killersheep"
+
 api.nvim_set_hl(0, "SheepTitle", { cterm = { bold = true }, bold = true })
 api.nvim_set_hl(0, "IntroHl", { ctermbg = "cyan", bg = "cyan" })
+api.nvim_set_hl(0, "KillerLevel", { ctermbg = "magenta", bg = "magenta" })
+api.nvim_set_hl(0, "KillerLevelX", { ctermbg = "yellow", bg = "yellow" })
 
 local SOUND_PROVIDERS = {
   afplay = { cmd = { "afplay" }, ext = ".mp3" },
@@ -100,8 +103,12 @@ local function open_float(lines, config)
   return buf, win
 end
 
+local function round(num)
+  -- TODO
+end
+
 local function countdown()
-  local buf, win = open_float {
+  local _, win = open_float {
     "",
     "",
     "    Get Ready!    ",
@@ -109,8 +116,34 @@ local function countdown()
     "",
   }
 
-  -- local blink_timer = loop.new_timer()
-  -- blink_timer:start(0, 300, vim.schedule_wrap(function() end))
+  local blink_timer, sound_timer = loop.new_timer(), loop.new_timer()
+  local blink_on = true
+  blink_timer:start(
+    0,
+    300,
+    vim.schedule_wrap(function()
+      local hl = blink_on and "KillerLevelX" or "KillerLevel"
+      vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(
+        hl,
+        hl
+      )
+      blink_on = not blink_on
+    end)
+  )
+  sound_timer:start(
+    300,
+    600,
+    vim.schedule_wrap(function()
+      play_sound "quack"
+    end)
+  )
+
+  vim.defer_fn(function()
+    blink_timer:stop()
+    sound_timer:stop()
+    api.nvim_win_close(win, true)
+    round(1)
+  end, 2400)
 end
 
 local function intro()
