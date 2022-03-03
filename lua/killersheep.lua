@@ -79,7 +79,7 @@ local function play_sound(name)
   end
 end
 
-local function open_float(lines, config)
+local function open_float(lines, config, on_close)
   local buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_lines(buf, 0, -1, true, lines)
   vim.bo[buf].bufhidden = "wipe"
@@ -98,9 +98,18 @@ local function open_float(lines, config)
     col = math.floor((vim.o.columns - width) / 2),
     row = math.floor((vim.o.lines - #lines) / 2),
   })
-
   local win = api.nvim_open_win(buf, true, config)
-  return buf, win
+
+  local augroup_name = "killersheep.float" .. win
+  local augroup = api.nvim_create_augroup(augroup_name, {})
+  api.nvim_create_autocmd({ "WinLeave", "BufLeave", "VimLeavePre" }, {
+    group = augroup_name,
+    once = true,
+    buffer = buf,
+    callback = on_close,
+  })
+
+  return buf, win, augroup
 end
 
 local function round(num)
@@ -108,26 +117,38 @@ local function round(num)
 end
 
 local function countdown()
-  local _, win = open_float {
+  local blink_timer, sound_timer = loop.new_timer(), loop.new_timer()
+  local close_timer, _, win, augroup
+
+  local function close()
+    close_timer:stop()
+    blink_timer:stop()
+    sound_timer:stop()
+    api.nvim_del_augroup_by_id(augroup)
+    api.nvim_win_close(win, true)
+    round(1)
+  end
+  _, win, augroup = open_float({
     "",
     "",
     "    Get Ready!    ",
     "",
     "",
-  }
+  }, {}, close)
 
-  local blink_timer, sound_timer = loop.new_timer(), loop.new_timer()
   local blink_on = true
   blink_timer:start(
     0,
     300,
     vim.schedule_wrap(function()
-      local hl = blink_on and "KillerLevelX" or "KillerLevel"
-      vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(
-        hl,
-        hl
-      )
-      blink_on = not blink_on
+      if api.nvim_win_is_valid(win) then
+        local hl = blink_on and "KillerLevelX" or "KillerLevel"
+        vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(
+          hl,
+          hl
+        )
+        blink_on = not blink_on
+      end
     end)
   )
   sound_timer:start(
@@ -137,17 +158,20 @@ local function countdown()
       play_sound "quack"
     end)
   )
-
-  vim.defer_fn(function()
-    blink_timer:stop()
-    sound_timer:stop()
-    api.nvim_win_close(win, true)
-    round(1)
-  end, 2400)
+  close_timer = vim.defer_fn(close, 2400)
 end
 
 local function intro()
-  local buf, win = open_float {
+  local hl_timer = loop.new_timer()
+  local buf, win, augroup
+
+  local function close()
+    stop_music()
+    hl_timer:stop()
+    api.nvim_del_augroup_by_id(augroup)
+    api.nvim_win_close(win, true)
+  end
+  buf, win, augroup = open_float({
     "",
     "    The sheep are out to get you!",
     "",
@@ -159,7 +183,8 @@ local function intro()
     "",
     " Now press  s  to start or  x  to exit ",
     "",
-  }
+  }, {}, close)
+
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 1, 4, 33)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 4, 6, 7)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 5, 6, 7)
@@ -179,7 +204,6 @@ local function intro()
   }
   local i = 1
   local hl_extmark
-  local hl_timer = loop.new_timer()
   hl_timer:start(
     0,
     300,
@@ -195,22 +219,6 @@ local function intro()
     end)
   )
 
-  play_music "music"
-  local augroup = api.nvim_create_augroup("killersheep.intro", {})
-  local function close()
-    stop_music()
-    hl_timer:stop()
-    api.nvim_del_augroup_by_id(augroup)
-    api.nvim_win_close(win, true)
-  end
-
-  api.nvim_create_autocmd({ "WinLeave", "BufLeave", "VimLeavePre" }, {
-    group = "killersheep.intro",
-    once = true,
-    buffer = buf,
-    callback = close,
-  })
-
   local function start()
     close()
     countdown()
@@ -220,6 +228,8 @@ local function intro()
   keymap.set("n", "x", close, { buffer = buf })
   keymap.set("n", "X", close, { buffer = buf })
   keymap.set("n", "<Esc>", close, { buffer = buf })
+
+  play_music "music"
 end
 
 local M = {}
