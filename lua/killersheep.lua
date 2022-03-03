@@ -7,30 +7,73 @@ local ns = api.nvim_create_namespace "killersheep"
 api.nvim_set_hl(0, "SheepTitle", { cterm = { bold = true }, bold = true })
 api.nvim_set_hl(0, "IntroHl", { ctermbg = "cyan", bg = "cyan" })
 
-local function script_path()
-  return fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
-end
-
 local SOUND_PROVIDERS = {
-  afplay = { cmd = "afplay", ext = ".mp3" },
-  paplay = { cmd = "paplay", ext = ".ogg" },
-  cvlc = { cmd = "cvlc --play-and-exit", ext = ".ogg" },
+  afplay = { cmd = { "afplay" }, ext = ".mp3" },
+  paplay = { cmd = { "paplay" }, ext = ".ogg" },
+  cvlc = { cmd = { "cvlc", "--play-and-exit" }, ext = ".ogg" },
 }
 local sound_provider
 
 local function detect_sound_provider()
   sound_provider = nil
-  for provider, _ in pairs(SOUND_PROVIDERS) do
-    if fn.executable(provider) then
+  for exe, provider in pairs(SOUND_PROVIDERS) do
+    if fn.executable(exe) == 1 then
+      api.nvim_echo({ { "Providing sound with " .. exe .. "." } }, true, {})
       sound_provider = provider
       return
     end
   end
-  api.nvim_echo(
-    { { "No sound provider found, you are missing out!" } },
-    true,
-    {}
-  )
+  local chunks = {
+    { "No sound provider found; you're missing out!\n" },
+    { "The following are supported: " },
+    { table.concat(vim.tbl_keys(SOUND_PROVIDERS), ", ") .. "." },
+  }
+  api.nvim_echo(chunks, true, {})
+end
+
+local function script_path()
+  return fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
+end
+local SOUND_DIR = script_path() .. "/sound"
+
+local music_job
+local function stop_music()
+  if music_job then
+    fn.jobstop(music_job)
+    music_job = nil
+  end
+end
+
+local function sound_cmd(name)
+  if not sound_provider then
+    return nil
+  end
+  local cmd = vim.deepcopy(sound_provider.cmd)
+  cmd[#cmd + 1] = ("%s/%s%s"):format(SOUND_DIR, name, sound_provider.ext)
+  return cmd
+end
+
+local function play_music(name)
+  stop_music()
+  local cmd = sound_cmd(name)
+  if cmd then
+    music_job = fn.jobstart(cmd, {
+      on_exit = function(_, code, _)
+        if code == 0 and music_job then
+          play_music(name)
+        else
+          music_job = nil
+        end
+      end,
+    })
+  end
+end
+
+local function play_sound(name)
+  local cmd = sound_cmd(name)
+  if cmd then
+    fn.jobstart(cmd)
+  end
 end
 
 local function countdown()
@@ -47,7 +90,7 @@ local function intro()
     "      h       move cannon left",
     "      l       move cannon right",
     "   <Space>    fire",
-    "    <Esc>     quit (colon also works)",
+    "    <Esc>     quit",
     "",
     " Now press  s  to start or  x  to exit",
   })
@@ -100,9 +143,11 @@ local function intro()
     end)
   )
 
+  play_music "music"
   local augroup = api.nvim_create_augroup("killersheep.intro", {})
 
   local function close()
+    stop_music()
     hl_timer:stop()
     api.nvim_del_augroup_by_id(augroup)
     api.nvim_win_close(win, true)
@@ -115,17 +160,20 @@ local function intro()
     callback = close,
   })
 
-  keymap.set("n", "s", countdown)
-  keymap.set("n", "S", countdown)
-  keymap.set("n", "x", close)
-  keymap.set("n", "X", close)
-  keymap.set("n", "<Esc>", close)
+  local function start()
+    close()
+    countdown()
+  end
+  keymap.set("n", "s", start, { buffer = buf })
+  keymap.set("n", "S", start, { buffer = buf })
+  keymap.set("n", "x", close, { buffer = buf })
+  keymap.set("n", "X", close, { buffer = buf })
+  keymap.set("n", "<Esc>", close, { buffer = buf })
 end
 
 local M = {}
 
-function M.start(sounddir)
-  sounddir = sounddir or (script_path() .. "/sound")
+function M.start()
   detect_sound_provider()
   intro()
 end
