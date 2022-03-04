@@ -23,33 +23,37 @@ for hl, attrs in pairs(HIGHLIGHTS) do
   api.nvim_set_hl(0, hl, attrs)
 end
 
-local function script_path()
-  return fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
-end
-local SOUND_DIR = script_path() .. "/sound"
-
 local SOUND_PROVIDERS = {
-  afplay = { cmd = { "afplay" }, ext = ".mp3" },
-  paplay = { cmd = { "paplay" }, ext = ".ogg" },
-  cvlc = { cmd = { "cvlc", "--play-and-exit" }, ext = ".ogg" },
+  { exe = "afplay", cmd = { "afplay" }, ext = ".mp3" },
+  { exe = "paplay", cmd = { "paplay" }, ext = ".ogg" },
+  { exe = "cvlc", cmd = { "cvlc", "--play-and-exit" }, ext = ".ogg" },
 }
 
 local sound_provider
 local function detect_sound_provider()
   sound_provider = nil
-  for exe, provider in pairs(SOUND_PROVIDERS) do
-    if fn.executable(exe) == 1 then
-      api.nvim_echo({ { "Providing sound with " .. exe .. "." } }, true, {})
+  for _, provider in ipairs(SOUND_PROVIDERS) do
+    if fn.executable(provider.exe) == 1 then
+      api.nvim_echo(
+        { { "Providing sound with " .. provider.exe .. "." } },
+        true,
+        {}
+      )
       sound_provider = provider
       return
     end
   end
-  local chunks = {
-    { "No sound provider found; you're missing out!\n" },
-    { "The following are supported: " },
-    { table.concat(vim.tbl_keys(SOUND_PROVIDERS), ", ") .. "." },
-  }
-  api.nvim_echo(chunks, true, {})
+
+  local provider_names = {}
+  for _, provider in ipairs(SOUND_PROVIDERS) do
+    provider_names[#provider_names + 1] = provider.exe
+  end
+  if #provider_names > 0 then
+    api.nvim_echo({
+      { "No sound provider found; you're missing out! Supported are: " },
+      { table.concat(provider_names, ", ") .. "." },
+    }, true, {})
+  end
 end
 
 local music_job
@@ -60,6 +64,8 @@ local function stop_music()
   end
 end
 
+local SOUND_DIR = fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
+  .. "/sound"
 local function sound_cmd(name)
   if not sound_provider then
     return nil
@@ -156,18 +162,18 @@ local SHEEP_SPRITES = {
   {
     "        /^^^^^^\\",
     "       |        |",
-    " O^^)   V^V^V^V^ ",
-    "xx___ _^V^V^V^V^|",
+    " O^^)   V^V /^V^ ",
+    "xx___ _^V^/  \\V^|",
     "      \\ _____  _/",
     "       ||    ||",
   },
   {
     "         /^^^^^^\\",
-    "        |        |",
-    "         ^V^V^V^V ",
+    "        |^  V^V  |",
+    "          V^   ^V ",
     " O^^)             ",
-    "XX___> ^V^V^V^V^V ",
-    "       \\ __  _  _/",
+    "XX___> ^V^V   V^V ",
+    "       \\ __^V_  _/",
     "        ||    ||",
   },
 }
@@ -198,12 +204,12 @@ local function del_sheep_sprite_bufs()
   sheep_sprite_bufs = {}
 end
 
-local function level(num)
+local function level(level_num)
   local lines, columns = vim.o.lines, vim.o.columns
   local topline = math.max(0, lines - 50)
 
   local _, level_win = open_float(
-    { " Level " .. num .. " " },
+    { " Level " .. level_num .. " " },
     { row = topline }
   )
   vim.wo[level_win].winhighlight =
@@ -258,6 +264,18 @@ local function level(num)
     end)
   end
 
+  local LEVEL_POOP_INTERVALS = { 700, 500, 300, 200, 100 }
+  local poop_timer = loop.new_timer()
+  local poop = {}
+  local can_poop = false
+  poop_timer:start(
+    LEVEL_POOP_INTERVALS[level_num],
+    LEVEL_POOP_INTERVALS[level_num],
+    function()
+      can_poop = true -- next sheep that moves will poop
+    end
+  )
+
   local function update_sheep(sheep)
     if sheep.dead then
       if sheep.sprite_index < 5 then
@@ -278,6 +296,9 @@ local function level(num)
       sheep.sprite_index = 1 + (sheep.sprite_index % 4)
       local max_clip = SHEEP_SPRITE_COLS[sheep.sprite_index] - 1
       sheep.col = ((sheep.col - 1 + max_clip) % (columns + max_clip)) - max_clip
+      if can_poop then
+        can_poop = false
+      end
     end
 
     vim.schedule(function()
@@ -327,6 +348,7 @@ local function level(num)
   create_sheep(topline + 28, 0, "KillerSheep")
 
   local function close()
+    poop_timer:stop()
     api.nvim_win_close(level_win, true)
     api.nvim_win_close(cannon_win, true)
     api.nvim_win_close(bullet_win, true)
@@ -414,7 +436,7 @@ local function intro()
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 12, 13)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 28, 29)
 
-  local hl_ranges = {
+  local HL_RANGES = {
     { 4, 7 },
     { 8, 13 },
     { 14, 17 },
@@ -430,12 +452,12 @@ local function intro()
     300,
     vim.schedule_wrap(function()
       if api.nvim_buf_is_valid(buf) then
-        hl_extmark = api.nvim_buf_set_extmark(buf, ns, 1, hl_ranges[i][1], {
+        hl_extmark = api.nvim_buf_set_extmark(buf, ns, 1, HL_RANGES[i][1], {
           id = hl_extmark,
           hl_group = "introHl",
-          end_col = hl_ranges[i][2],
+          end_col = HL_RANGES[i][2],
         })
-        i = 1 + (i % #hl_ranges)
+        i = 1 + (i % #HL_RANGES)
       end
     end)
   )
