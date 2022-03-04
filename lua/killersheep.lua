@@ -204,6 +204,7 @@ local function del_sheep_sprite_bufs()
   sheep_sprite_bufs = {}
 end
 
+local missile_buf
 local function level(level_num)
   local lines, columns = vim.o.lines, vim.o.columns
   local topline = math.max(0, lines - 50)
@@ -230,9 +231,17 @@ local function level(level_num)
     "NormalFloat:KillerBullet,FloatBorder:KillerBullet"
 
   local sheeps = {}
-  local function update_sheep_win(sheep)
+  local function close_sheep_poop_win(sheep)
+    if sheep.poop_win and api.nvim_win_is_valid(sheep.poop_win) then
+      api.nvim_win_close(sheep.poop_win, true)
+    end
+    sheep.poop_win = nil
+  end
+
+  local function update_sheep_wins(sheep)
     -- clip if partially off-screen
-    local width = SHEEP_SPRITE_COLS[sheep.sprite_index]
+    local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
+    local width = sprite_cols
     local anchor_right
     if sheep.col < 0 then
       width = width + sheep.col
@@ -240,6 +249,27 @@ local function level(level_num)
     elseif sheep.col > columns - width then
       width = columns - sheep.col
       anchor_right = false
+    end
+
+    if
+      sheep.poop_win
+      and (not sheep.poop_ticks or sheep.col + sprite_cols >= columns)
+    then
+      close_sheep_poop_win(sheep)
+    elseif not sheep.poop_win and sheep.poop_ticks then
+      -- position will be given proper values below
+      sheep.poop_win = api.nvim_open_win(missile_buf, false, {
+        relative = "editor",
+        style = "minimal",
+        border = "none",
+        zindex = 90,
+        width = 1,
+        height = 1,
+        row = 0,
+        col = 0,
+      })
+      vim.wo[sheep.poop_win].winhighlight =
+        "NormalFloat:KillerPoop,FloatBorder:KillerPoop"
     end
 
     api.nvim_win_set_config(sheep.win, {
@@ -253,11 +283,20 @@ local function level(level_num)
     if anchor_right ~= nil then
       api.nvim_win_set_cursor(sheep.win, { 1, anchor_right and 9999 or 0 })
     end
+
+    if sheep.poop_win then
+      api.nvim_win_set_config(sheep.poop_win, {
+        relative = "editor",
+        row = sheep.row + 1,
+        col = sheep.col + sprite_cols,
+      })
+    end
   end
 
   local function del_sheep(sheep)
     sheep.update_timer:stop()
     vim.schedule(function()
+      close_sheep_poop_win(sheep)
       if api.nvim_win_is_valid(sheep.win) then
         api.nvim_win_close(sheep.win, true)
       end
@@ -265,9 +304,9 @@ local function level(level_num)
   end
 
   local LEVEL_POOP_INTERVALS = { 700, 500, 300, 200, 100 }
+  local can_poop = false
   local poop_timer = loop.new_timer()
   local poop = {}
-  local can_poop = false
   poop_timer:start(
     LEVEL_POOP_INTERVALS[level_num],
     LEVEL_POOP_INTERVALS[level_num],
@@ -276,12 +315,19 @@ local function level(level_num)
     end
   )
 
+  local function create_poop(row, col)
+    -- TODO
+  end
+
+  local frozen = false
   local function update_sheep(sheep)
     if sheep.dead then
       if sheep.sprite_index < 5 then
         -- was just shot; start dying
         sheep.sprite_index = 5
+        sheep.poop_ticks = nil
         play_sound "beh"
+
         sheep.update_timer:start(150, 0, function()
           update_sheep(sheep)
         end)
@@ -292,45 +338,55 @@ local function level(level_num)
           return
         end
       end
-    elseif not sheep.frozen then
+    elseif not frozen then
       sheep.sprite_index = 1 + (sheep.sprite_index % 4)
-      local max_clip = SHEEP_SPRITE_COLS[sheep.sprite_index] - 1
+      local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
+      local max_clip = sprite_cols - 1
       sheep.col = ((sheep.col - 1 + max_clip) % (columns + max_clip)) - max_clip
-      if can_poop then
+
+      if sheep.poop_ticks then
+        sheep.poop_ticks = sheep.poop_ticks - 1
+        if sheep.poop_ticks < 1 then
+          sheep.poop_ticks = nil
+          create_poop(sheep.row + 2, sheep.col + sprite_cols)
+        end
+      elseif can_poop then
         can_poop = false
+        sheep.poop_ticks = 7
       end
     end
 
     vim.schedule(function()
-      update_sheep_win(sheep)
+      update_sheep_wins(sheep)
     end)
   end
 
   local function create_sheep(row, col, hl)
-    -- config will be given proper values by update_sheep_win below
+    -- position and size will be given proper values by update_sheep_wins below
     local win = api.nvim_open_win(sheep_sprite_bufs[1], false, {
       relative = "editor",
       style = "minimal",
       border = "none",
       zindex = 90,
-      row = 0,
-      col = 0,
       width = 1,
       height = 1,
+      row = 0,
+      col = 0,
     })
     vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(hl, hl)
 
     local sheep = {
-      update_timer = loop.new_timer(),
       win = win,
       sprite_index = 1,
       row = row,
       col = col,
+      update_timer = loop.new_timer(),
       dead = false,
-      frozen = false,
+      poop_ticks = nil,
+      poop_win = nil,
     }
     sheeps[#sheeps + 1] = sheep
-    update_sheep_win(sheep)
+    update_sheep_wins(sheep)
     sheep.update_timer:start(40, 40, function()
       update_sheep(sheep)
     end)
@@ -356,6 +412,7 @@ local function level(level_num)
       del_sheep(sheep)
     end
     del_sheep_sprite_bufs()
+    api.nvim_buf_delete(missile_buf, { force = true })
   end
 end
 
@@ -465,6 +522,8 @@ local function intro()
   local function start()
     close()
     create_sheep_sprite_bufs()
+    missile_buf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_lines(missile_buf, 0, -1, true, { "x", "x", "x" })
     countdown()
   end
   keymap.set("n", "s", start, { buffer = buf })
