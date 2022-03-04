@@ -207,7 +207,7 @@ end
 local missile_buf
 local function create_missile_buf()
   missile_buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(missile_buf, 0, -1, true, { "x", "|", "|" })
+  api.nvim_buf_set_lines(missile_buf, 0, -1, true, { "|x", "|" })
   vim.bo[missile_buf].modifiable = false
 end
 
@@ -281,6 +281,7 @@ local function level(level_num)
         row = 0,
         col = 0,
       })
+      api.nvim_win_set_cursor(sheep.poop_win, { 1, 1 })
       vim.wo[sheep.poop_win].winhighlight =
         "NormalFloat:KillerPoop,FloatBorder:KillerPoop"
     end
@@ -294,7 +295,8 @@ local function level(level_num)
     })
     api.nvim_win_set_buf(sheep.win, sheep_sprite_bufs[sheep.sprite_index])
     if anchor_right ~= nil then
-      api.nvim_win_set_cursor(sheep.win, { 1, anchor_right and 9999 or 0 })
+      local col = anchor_right and (sprite_cols - 1) or 0
+      api.nvim_win_set_cursor(sheep.win, { 1, col })
     end
 
     if sheep.poop_win then
@@ -328,6 +330,7 @@ local function level(level_num)
 
   local poops = {}
   local next_poop_key = 1
+  local prev_poop_sound_time = 0
   local function create_poop(row, col)
     if row < 0 or col < 0 or row >= lines or col >= columns then
       return
@@ -343,10 +346,13 @@ local function level(level_num)
         row = row,
         col = col,
       })
-      api.nvim_win_set_cursor(win, { 3, 0 })
+      api.nvim_win_set_cursor(win, { 1, 0 })
       poops[next_poop_key] = { win = win, row = row, col = col }
       next_poop_key = next_poop_key + 1
-      play_sound "poop"
+      if loop.hrtime() - prev_poop_sound_time >= 700000000 then
+        play_sound "poop"
+        prev_poop_sound_time = loop.hrtime()
+      end
     end)
   end
 
