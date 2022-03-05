@@ -125,8 +125,10 @@ local function open_float(buf_or_lines, config, on_close, keymaps)
   for _, line in ipairs(lines) do
     width = math.max(width, #line)
   end
+
   config = vim.tbl_extend("keep", config or {}, {
     focus = false,
+    hl = nil,
     relative = "editor",
     border = "none",
     style = "minimal",
@@ -135,9 +137,17 @@ local function open_float(buf_or_lines, config, on_close, keymaps)
     col = math.max(0, math.floor((vim.o.columns - width) / 2)),
     row = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - #lines) / 2)),
   })
-  local focus = config.focus
+  local focus, hl = config.focus, config.hl
   config.focus = nil
+  config.hl = nil
+
   local win = api.nvim_open_win(buf, focus, config)
+  vim.wo[win].winhighlight = hl
+      and ("NormalFloat:%s,FloatBorder:%s"):format(
+        hl,
+        hl
+      )
+    or ""
 
   keymaps = keymaps or {}
   local augroup = nil
@@ -229,7 +239,7 @@ local function del_sheep_sprite_bufs()
   sheep_sprite_bufs = {}
 end
 
-local missile_buf
+local missile_buf, poop_buf, cannon_buf
 local function level(level_num)
   local lines, columns = vim.o.lines, vim.o.columns
   local topline = math.max(0, lines - 50)
@@ -262,15 +272,12 @@ local function level(level_num)
       close_sheep_poop_win(sheep)
     elseif not sheep.poop_win and sheep.poop_ticks then
       -- position will be given proper values below
-      local _
-      sheep.poop_win = open_float(missile_buf, {
+      sheep.poop_win = open_float(poop_buf, {
         zindex = 100,
         width = 1,
         height = 1,
+        hl = "KillerPoop",
       })
-      api.nvim_win_set_cursor(sheep.poop_win, { 1, 1 })
-      vim.wo[sheep.poop_win].winhighlight =
-        "NormalFloat:KillerPoop,FloatBorder:KillerPoop"
     end
 
     api.nvim_win_set_config(sheep.win, {
@@ -327,8 +334,8 @@ local function level(level_num)
         zindex = 100,
         width = 1,
         height = 2,
+        hl = "KillerPoop",
       })
-      api.nvim_win_set_cursor(win, { 1, 0 })
       poops[next_poop_key] = { win = win, row = row, col = col }
       next_poop_key = next_poop_key + 1
       if loop.hrtime() >= poop_sound_time then
@@ -416,20 +423,8 @@ local function level(level_num)
 
   local function create_sheep(row, col, hl)
     -- position and size will be given proper values by update_sheep_wins below
-    local win = api.nvim_open_win(sheep_sprite_bufs[1], false, {
-      relative = "editor",
-      style = "minimal",
-      border = "none",
-      zindex = 90,
-      width = 1,
-      height = 1,
-      row = 0,
-      col = 0,
-    })
-    vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(hl, hl)
-
     local sheep = {
-      win = win,
+      win = open_float(sheep_sprite_bufs[1], { zindex = 90, hl = hl }),
       sprite_index = 1,
       row = row,
       col = col,
@@ -453,37 +448,112 @@ local function level(level_num)
   create_sheep(topline + 22, 60, "KillerSheep2")
   create_sheep(topline + 28, 0, "KillerSheep")
 
-  local cannon = { win = nil, col = math.floor(columns / 2), shoot_time = 0 }
-  local function move_cannon(offset)
-    cannon.col = math.min(columns - 3, math.max(4, cannon.col + offset))
+  local cannon = {
+    row = lines - vim.o.cmdheight - 3,
+    col = math.floor(columns / 2),
+    shoot_time = 0,
+    win = nil,
+    ready_win = nil,
+  }
+  local function update_cannon_wins()
     api.nvim_win_set_config(cannon.win, {
       relative = "editor",
-      row = lines - vim.o.cmdheight - 3,
-      col = cannon.col - 4,
+      row = cannon.row,
+      col = cannon.col - 3,
     })
+    if cannon.ready_win then
+      api.nvim_win_set_config(cannon.ready_win, {
+        relative = "editor",
+        row = cannon.row - 1,
+        col = cannon.col,
+      })
+    end
+  end
+
+  local function move_cannon(offset)
+    cannon.col = math.min(columns - 3, math.max(4, cannon.col + offset))
+    update_cannon_wins()
   end
 
   local bullets = {}
-  local function shoot_cannon()
-    -- TODO
-    kill_sheep(sheeps[1])
+  local function del_bullet(key)
+    local win = bullets[key].win
+    bullets[key] = nil
+    vim.schedule(function()
+      api.nvim_win_close(win, true)
+    end)
   end
 
-  -- TODO: create buffer once only
-  cannon.win = open_float({ "  /#\\", " /###\\", "/#####\\" }, {
-    zindex = 100,
-  })
+  local function update_bullet(key)
+    local bullet = bullets[key]
+    bullet.row = bullet.row - 2
+    if bullet.row < 0 then
+      del_bullet(key)
+    else
+      vim.schedule(function()
+        api.nvim_win_set_config(bullet.win, {
+          relative = "editor",
+          row = bullet.row,
+          col = bullet.col,
+        })
+      end)
+    end
+  end
+
+  local next_bullet_key = 1
+  local function shoot_cannon()
+    if loop.hrtime() < cannon.shoot_time then
+      return
+    end
+    local bullet = {
+      row = cannon.row - 4,
+      col = cannon.col,
+      win = nil,
+    }
+    bullets[next_bullet_key] = bullet
+    next_bullet_key = next_bullet_key + 1
+
+    vim.schedule(function()
+      bullet.win = open_float(missile_buf, {
+        zindex = 100,
+        width = 1,
+        height = 2,
+        row = bullet.row,
+        col = bullet.col,
+        hl = "KillerBullet",
+      })
+      if cannon.ready_win then
+        api.nvim_win_close(cannon.ready_win, true)
+        cannon.ready_win = nil
+      end
+    end)
+
+    cannon.shoot_time = loop.hrtime() + 800000000
+    play_sound "fire"
+  end
+
+  cannon.win = open_float(cannon_buf, { zindex = 100, hl = "KillerCannon" })
   move_cannon(0) -- invalidate cannon position
-  vim.wo[cannon.win].winhighlight =
-    "NormalFloat:KillerCannon,FloatBorder:KillerCannon"
 
   local update_timer = loop.new_timer()
-  update_timer:start(40, 40, function()
+  update_timer:start(50, 50, function()
     for key, _ in pairs(poops) do
       update_poop(key)
     end
     for _, sheep in ipairs(sheeps) do
       update_sheep(sheep)
+    end
+    for key, _ in pairs(bullets) do
+      update_bullet(key)
+    end
+    if not cannon.ready_win and loop.hrtime() >= cannon.shoot_time then
+      vim.schedule(function()
+        cannon.ready_win = open_float(
+          missile_buf,
+          { zindex = 100, width = 1, height = 1, hl = "KillerBullet" }
+        )
+        update_cannon_wins() -- invalidate bullet position
+      end)
     end
   end)
 
@@ -495,6 +565,9 @@ local function level(level_num)
     if api.nvim_win_is_valid(cannon.win) then
       api.nvim_win_close(cannon.win, true)
     end
+    for key, _ in pairs(bullets) do
+      del_bullet(key)
+    end
     for key, _ in pairs(poops) do
       del_poop(key)
     end
@@ -503,11 +576,13 @@ local function level(level_num)
     end
     del_sheep_sprite_bufs()
     del_buf(missile_buf)
+    del_buf(poop_buf)
+    del_buf(cannon_buf)
   end
 
   level_win, level_buf = open_float(
     { " Level " .. level_num .. " " },
-    { focus = true, border = "single", row = topline },
+    { focus = true, border = "single", row = topline, hl = "KillerLevel" },
     nil, -- TODO
     {
       l = function()
@@ -519,8 +594,6 @@ local function level(level_num)
       ["<Space>"] = shoot_cannon,
     }
   )
-  vim.wo[level_win].winhighlight =
-    "NormalFloat:KillerLevel,FloatBorder:KillerLevel"
 end
 
 local function countdown()
@@ -584,7 +657,9 @@ local function intro()
 
   local function start()
     close()
-    missile_buf = create_buf { "|x", "|" }
+    missile_buf = create_buf { "|", "|" }
+    poop_buf = create_buf { "x" }
+    cannon_buf = create_buf { "  /#\\", " /###\\", "/#####\\" }
     create_sheep_sprite_bufs()
     countdown()
   end
