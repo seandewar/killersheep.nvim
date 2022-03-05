@@ -63,17 +63,19 @@ local SHEEP_SPRITES = {
 }
 local SHEEP_SPRITE_COLS = {}
 for i, sprite in ipairs(SHEEP_SPRITES) do
-  SHEEP_SPRITE_COLS[i] = 0
-  for _, line in ipairs(sprite) do
-    SHEEP_SPRITE_COLS[i] = math.max(SHEEP_SPRITE_COLS[i], #line)
-  end
+  SHEEP_SPRITE_COLS[i] = util.max_elem_len(sprite)
 end
+
+local CANNON_SPRITE = { "  /#\\", " /###\\", "/#####\\" }
+local CANNON_SPRITE_COLS = util.max_elem_len(CANNON_SPRITE)
+
+local LEVEL_POOP_INTERVALS = { 700, 500, 300, 200, 100 }
 
 local function play()
   local lines, columns = vim.o.lines, vim.o.columns
   local topline = math.max(0, lines - 50)
 
-  local cannon_buf = util.create_buf { "  /#\\", " /###\\", "/#####\\" }
+  local cannon_buf = util.create_buf(CANNON_SPRITE)
   local missile_buf = util.create_buf { "|", "|" }
   local poop_buf = util.create_buf { "x" }
 
@@ -83,16 +85,6 @@ local function play()
     sheep_sprite_bufs[#sheep_sprite_bufs + 1] = buf
   end
 
-  local function quit()
-    for _, buf in ipairs(sheep_sprite_bufs) do
-      util.del_buf(buf)
-    end
-    util.del_buf(cannon_buf)
-    util.del_buf(missile_buf)
-    util.del_buf(poop_buf)
-  end
-
-  local LEVEL_POOP_INTERVALS = { 700, 500, 300, 200, 100 }
   local function level(level_num)
     local sheeps = {}
     local function close_sheep_poop_win(sheep)
@@ -198,8 +190,107 @@ local function play()
       end)
     end
 
+    local update_timer = loop.new_timer()
+    local function paused()
+      return update_timer:get_due_in() == 0
+    end
+
+    local bullets = {}
+    local function del_bullet(key)
+      local win = bullets[key].win
+      bullets[key] = nil
+      vim.schedule(function()
+        util.close_win(win)
+      end)
+    end
+
+    local level_win, level_buf, blink_timer, cannon
+    local function close()
+      update_timer:stop()
+      poop_timer:stop()
+      if blink_timer then
+        blink_timer:stop()
+      end
+      util.close_win(level_win)
+      util.close_win(cannon.win)
+      for key, _ in pairs(bullets) do
+        del_bullet(key)
+      end
+      for key, _ in pairs(poops) do
+        del_poop(key)
+      end
+      for _, sheep in ipairs(sheeps) do
+        del_sheep(sheep)
+      end
+    end
+
+    local function quit()
+      close()
+      for _, buf in ipairs(sheep_sprite_bufs) do
+        util.del_buf(buf)
+      end
+      util.del_buf(cannon_buf)
+      util.del_buf(missile_buf)
+      util.del_buf(poop_buf)
+    end
+
+    local alive_sheep_count = 0
+    local function end_level()
+      update_timer:stop()
+      poop_timer:stop()
+
+      if alive_sheep_count <= 0 then
+        vim.schedule(function()
+          sound.play "win"
+          if level_num >= 5 then
+            api.nvim_echo({
+              { "Amazing, you made it through ALL levels! " },
+              { "(did you cheat???)", "Question" },
+            }, true, {})
+            vim.defer_fn(quit, 2000)
+            return
+          end
+
+          vim.bo[level_buf].modifiable = true
+          api.nvim_buf_set_lines(
+            level_buf,
+            0,
+            1,
+            true,
+            { " Level " .. (level_num + 1) .. " " }
+          )
+          vim.bo[level_buf].modifiable = false
+          blink_timer = util.blink_win(level_win, "KillerLevelX", "KillerLevel")
+          vim.defer_fn(function()
+            close()
+            level(level_num + 1)
+          end, 2000)
+        end)
+      else
+        vim.schedule(function()
+          sound.play "fail"
+        end)
+        vim.defer_fn(quit, 4000)
+      end
+    end
+
     local function update_poop(key)
       local poop = poops[key]
+      if
+        util.intersects(
+          poop.col,
+          poop.row + 1,
+          cannon.col,
+          cannon.row,
+          CANNON_SPRITE_COLS,
+          #CANNON_SPRITE
+        )
+      then
+        del_poop(key)
+        end_level()
+        return
+      end
+
       poop.row = poop.row + 1
       if poop.row >= lines - 1 then
         del_poop(key)
@@ -218,6 +309,7 @@ local function play()
       if sheep.dead then
         return
       end
+      alive_sheep_count = alive_sheep_count - 1
       sheep.dead = true
       sheep.sprite_index = 5
       sheep.poop_ticks = nil
@@ -236,6 +328,10 @@ local function play()
           end)
         end
       end)
+
+      if alive_sheep_count <= 0 then
+        end_level()
+      end
     end
 
     local function update_sheep(sheep)
@@ -279,6 +375,7 @@ local function play()
         death_anim_timer = nil,
       }
       sheeps[#sheeps + 1] = sheep
+      alive_sheep_count = alive_sheep_count + 1
       update_sheep_wins(sheep)
     end
 
@@ -293,9 +390,9 @@ local function play()
     create_sheep(topline + 22, 60, "KillerSheep2")
     create_sheep(topline + 28, 0, "KillerSheep")
 
-    local cannon = {
-      row = lines - vim.o.cmdheight - 3,
-      col = math.floor(columns / 2),
+    cannon = {
+      row = lines - vim.o.cmdheight - #CANNON_SPRITE,
+      col = math.floor((columns + CANNON_SPRITE_COLS) / 2),
       shoot_time = 0,
       win = nil,
       ready_win = nil,
@@ -304,29 +401,25 @@ local function play()
       api.nvim_win_set_config(cannon.win, {
         relative = "editor",
         row = cannon.row,
-        col = cannon.col - 3,
+        col = cannon.col,
       })
       if cannon.ready_win then
         api.nvim_win_set_config(cannon.ready_win, {
           relative = "editor",
           row = cannon.row - 1,
-          col = cannon.col,
+          col = cannon.col + math.floor(CANNON_SPRITE_COLS / 2),
         })
       end
     end
 
     local function move_cannon(offset)
-      cannon.col = math.min(columns - 3, math.max(4, cannon.col + offset))
-      update_cannon_wins()
-    end
-
-    local bullets = {}
-    local function del_bullet(key)
-      local win = bullets[key].win
-      bullets[key] = nil
-      vim.schedule(function()
-        util.close_win(win)
-      end)
+      if not paused() then
+        cannon.col = math.min(
+          columns - CANNON_SPRITE_COLS,
+          math.max(0, cannon.col + offset)
+        )
+        update_cannon_wins()
+      end
     end
 
     local function update_bullet(key)
@@ -366,12 +459,12 @@ local function play()
 
     local next_bullet_key = 1
     local function shoot_cannon()
-      if loop.hrtime() < cannon.shoot_time then
+      if loop.hrtime() < cannon.shoot_time or paused() then
         return
       end
       local bullet = {
         row = cannon.row - 3,
-        col = cannon.col,
+        col = cannon.col + math.floor(CANNON_SPRITE_COLS / 2),
         win = nil,
       }
       bullets[next_bullet_key] = bullet
@@ -402,7 +495,6 @@ local function play()
     )
     move_cannon(0) -- invalidate cannon position
 
-    local update_timer = loop.new_timer()
     update_timer:start(50, 50, function()
       for key, _ in pairs(poops) do
         update_poop(key)
@@ -424,24 +516,7 @@ local function play()
       end
     end)
 
-    local level_win
-    local function close()
-      update_timer:stop()
-      poop_timer:stop()
-      util.close_win(level_win)
-      util.close_win(cannon.win)
-      for key, _ in pairs(bullets) do
-        del_bullet(key)
-      end
-      for key, _ in pairs(poops) do
-        del_poop(key)
-      end
-      for _, sheep in ipairs(sheeps) do
-        del_sheep(sheep)
-      end
-    end
-
-    level_win = util.open_float(
+    level_win, level_buf = util.open_float(
       { " Level " .. level_num .. " " },
       { focus = true, border = "single", row = topline, hl = "KillerLevel" },
       nil, -- TODO
@@ -457,12 +532,7 @@ local function play()
     )
   end
 
-  for i = 1, #LEVEL_POOP_INTERVALS do
-    level(i)
-    break -- TODO
-  end
-
-  -- TODO: won!
+  level(1)
 end
 
 local function countdown()
@@ -488,21 +558,7 @@ local function countdown()
     border = "single",
   }, close)
 
-  local blink_on = true
-  blink_timer:start(
-    0,
-    300,
-    vim.schedule_wrap(function()
-      if api.nvim_win_is_valid(win) then
-        local hl = blink_on and "KillerLevelX" or "KillerLevel"
-        vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(
-          hl,
-          hl
-        )
-        blink_on = not blink_on
-      end
-    end)
-  )
+  blink_timer = util.blink_win(win, "KillerLevelX", "KillerLevel")
   sound_timer:start(
     300,
     600,

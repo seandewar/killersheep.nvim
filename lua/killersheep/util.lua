@@ -15,6 +15,14 @@ function M.del_buf(buf)
   end
 end
 
+function M.max_elem_len(list)
+  local max = 0
+  for _, elem in ipairs(list) do
+    max = math.max(max, #elem)
+  end
+  return max
+end
+
 function M.open_float(buf_or_lines, config, on_close, keymaps)
   local buf, lines
   if type(buf_or_lines) == "number" then
@@ -82,6 +90,26 @@ function M.close_win(win)
   if win and api.nvim_win_is_valid(win) then
     api.nvim_win_close(win, true)
   end
+end
+
+function M.blink_win(win, hl1, hl2)
+  local blink_on = true
+  local timer = vim.loop.new_timer()
+  timer:start(
+    0,
+    300,
+    vim.schedule_wrap(function()
+      if api.nvim_win_is_valid(win) then
+        local hl = blink_on and hl1 or hl2
+        vim.wo[win].winhighlight = ("NormalFloat:%s,FloatBorder:%s"):format(
+          hl,
+          hl
+        )
+        blink_on = not blink_on
+      end
+    end)
+  )
+  return timer
 end
 
 function M.define_hls(hls)
