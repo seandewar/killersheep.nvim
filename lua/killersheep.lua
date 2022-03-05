@@ -382,7 +382,9 @@ local function play()
       sheep.dead = true
       sheep.sprite_index = 5
       sheep.poop_ticks = nil
-      play_sound "beh"
+      vim.schedule(function()
+        play_sound "beh"
+      end)
 
       sheep.death_anim_timer = loop.new_timer()
       sheep.death_anim_timer:start(150, 150, function()
@@ -488,8 +490,31 @@ local function play()
       end)
     end
 
+    local function intersects(ax, ay, bx, by, bw, bh)
+      return ax >= bx and ax < (bx + bw) and ay >= by and ay < (by + bh)
+    end
+
     local function update_bullet(key)
       local bullet = bullets[key]
+      for _, sheep in ipairs(sheeps) do
+        if not sheep.dead then
+          if
+            intersects(
+              bullet.col,
+              bullet.row,
+              sheep.col,
+              sheep.row,
+              SHEEP_SPRITE_COLS[sheep.sprite_index],
+              #SHEEP_SPRITES[sheep.sprite_index]
+            )
+          then
+            kill_sheep(sheep)
+            del_bullet(key)
+            return
+          end
+        end
+      end
+
       bullet.row = bullet.row - 2
       if bullet.row < 0 then
         del_bullet(key)
@@ -510,7 +535,7 @@ local function play()
         return
       end
       local bullet = {
-        row = cannon.row - 4,
+        row = cannon.row - 3,
         col = cannon.col,
         win = nil,
       }
@@ -530,10 +555,10 @@ local function play()
           close_win(cannon.ready_win)
           cannon.ready_win = nil
         end
+        play_sound "fire"
       end)
 
       cannon.shoot_time = loop.hrtime() + 800000000
-      play_sound "fire"
     end
 
     cannon.win = open_float(cannon_buf, { zindex = 100, hl = "KillerCannon" })
@@ -596,6 +621,7 @@ local function play()
 
   for i = 1, #LEVEL_POOP_INTERVALS do
     level(i)
+    break -- TODO
   end
 
   -- TODO: won!
