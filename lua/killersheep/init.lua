@@ -1,10 +1,10 @@
 local api = vim.api
-local fn = vim.fn
 local loop = vim.loop
 
-local ns = api.nvim_create_namespace "killersheep"
+local sound = require "killersheep.sound"
+local util = require "killersheep.util"
 
-local HIGHLIGHTS = {
+util.define_hls {
   SheepTitle = { cterm = { bold = true }, bold = true },
   introHl = { ctermbg = "cyan", bg = "cyan" },
   KillerCannon = { ctermfg = "blue", fg = "blue" },
@@ -17,167 +17,6 @@ local HIGHLIGHTS = {
   KillerLevel = { ctermbg = "magenta", bg = "magenta" },
   KillerLevelX = { ctermbg = "yellow", bg = "yellow" },
 }
-for hl, attrs in pairs(HIGHLIGHTS) do
-  attrs.default = true
-  api.nvim_set_hl(0, hl, attrs)
-end
-
-local SOUND_PROVIDERS = {
-  { exe = "afplay", cmd = { "afplay" }, ext = ".mp3" },
-  { exe = "paplay", cmd = { "paplay" }, ext = ".ogg" },
-  { exe = "cvlc", cmd = { "cvlc", "--play-and-exit" }, ext = ".ogg" },
-}
-
-local sound_provider
-local function detect_sound_provider()
-  sound_provider = nil
-  for _, provider in ipairs(SOUND_PROVIDERS) do
-    if fn.executable(provider.exe) == 1 then
-      api.nvim_echo(
-        { { "Providing sound with " .. provider.exe .. "." } },
-        true,
-        {}
-      )
-      sound_provider = provider
-      return
-    end
-  end
-
-  local provider_names = {}
-  for _, provider in ipairs(SOUND_PROVIDERS) do
-    provider_names[#provider_names + 1] = provider.exe
-  end
-  if #provider_names > 0 then
-    api.nvim_echo({
-      { "No sound provider found; you're missing out! Supported are: " },
-      { table.concat(provider_names, ", ") .. "." },
-    }, true, {})
-  end
-end
-
-local music_job
-local function stop_music()
-  if music_job then
-    fn.jobstop(music_job)
-    music_job = nil
-  end
-end
-
-local SOUND_DIR = fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
-  .. "/sound"
-local function sound_cmd(name)
-  if not sound_provider then
-    return nil
-  end
-  local cmd = vim.deepcopy(sound_provider.cmd)
-  cmd[#cmd + 1] = ("%s/%s%s"):format(SOUND_DIR, name, sound_provider.ext)
-  return cmd
-end
-
-local function play_music(name)
-  stop_music()
-  local cmd = sound_cmd(name)
-  if cmd then
-    music_job = fn.jobstart(cmd, {
-      on_exit = function(_, code, _)
-        if code == 0 and music_job then
-          play_music(name)
-        else
-          music_job = nil
-        end
-      end,
-    })
-  end
-end
-
-local function play_sound(name)
-  local cmd = sound_cmd(name)
-  if cmd then
-    fn.jobstart(cmd)
-  end
-end
-
-local function create_buf(lines)
-  local buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(buf, 0, -1, true, lines)
-  vim.bo[buf].modifiable = false
-  return buf
-end
-
-local function del_buf(buf)
-  if buf and api.nvim_buf_is_valid(buf) then
-    api.nvim_buf_delete(buf, { force = true })
-  end
-end
-
-local function open_float(buf_or_lines, config, on_close, keymaps)
-  local buf, lines
-  if type(buf_or_lines) == "number" then
-    buf = buf_or_lines
-    lines = api.nvim_buf_get_lines(buf, 0, -1, true)
-  else
-    lines = buf_or_lines
-    buf = create_buf(lines)
-    vim.bo[buf].bufhidden = "wipe"
-  end
-
-  local width = 0
-  for _, line in ipairs(lines) do
-    width = math.max(width, #line)
-  end
-
-  config = vim.tbl_extend("keep", config or {}, {
-    focus = false,
-    hl = nil,
-    relative = "editor",
-    border = "none",
-    style = "minimal",
-    width = width,
-    height = #lines,
-    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-    row = math.max(0, math.floor((vim.o.lines - vim.o.cmdheight - #lines) / 2)),
-  })
-  local focus, hl = config.focus, config.hl
-  config.focus = nil
-  config.hl = nil
-
-  local win = api.nvim_open_win(buf, focus, config)
-  vim.wo[win].winhighlight = hl
-      and ("NormalFloat:%s,FloatBorder:%s"):format(
-        hl,
-        hl
-      )
-    or ""
-
-  keymaps = keymaps or {}
-  local augroup = nil
-  if on_close then
-    local augroup_name = "killersheep.float" .. win
-    augroup = api.nvim_create_augroup(augroup_name, {})
-    api.nvim_create_autocmd({ "WinLeave", "BufLeave", "VimLeavePre" }, {
-      group = augroup_name,
-      once = true,
-      buffer = buf,
-      callback = on_close,
-    })
-    keymaps = vim.tbl_extend("keep", keymaps, {
-      x = on_close,
-      ["<Esc>"] = on_close,
-    })
-  end
-
-  for lhs, rhs in pairs(keymaps) do
-    vim.keymap.set("n", lhs, rhs, { buffer = buf, nowait = true })
-  end
-
-  return win, buf, augroup
-end
-
-local function close_win(win)
-  if win and api.nvim_win_is_valid(win) then
-    api.nvim_win_close(win, true)
-  end
-end
 
 local SHEEP_SPRITES = {
   {
@@ -234,30 +73,30 @@ local function play()
   local lines, columns = vim.o.lines, vim.o.columns
   local topline = math.max(0, lines - 50)
 
-  local cannon_buf = create_buf { "  /#\\", " /###\\", "/#####\\" }
-  local missile_buf = create_buf { "|", "|" }
-  local poop_buf = create_buf { "x" }
+  local cannon_buf = util.create_buf { "  /#\\", " /###\\", "/#####\\" }
+  local missile_buf = util.create_buf { "|", "|" }
+  local poop_buf = util.create_buf { "x" }
 
   local sheep_sprite_bufs = {}
-  for _, lines in ipairs(SHEEP_SPRITES) do
-    local buf = create_buf(lines)
+  for _, sprite_lines in ipairs(SHEEP_SPRITES) do
+    local buf = util.create_buf(sprite_lines)
     sheep_sprite_bufs[#sheep_sprite_bufs + 1] = buf
   end
 
   local function quit()
     for _, buf in ipairs(sheep_sprite_bufs) do
-      del_buf(buf)
+      util.del_buf(buf)
     end
-    del_buf(cannon_buf)
-    del_buf(missile_buf)
-    del_buf(poop_buf)
+    util.del_buf(cannon_buf)
+    util.del_buf(missile_buf)
+    util.del_buf(poop_buf)
   end
 
   local LEVEL_POOP_INTERVALS = { 700, 500, 300, 200, 100 }
   local function level(level_num)
     local sheeps = {}
     local function close_sheep_poop_win(sheep)
-      close_win(sheep.poop_win)
+      util.close_win(sheep.poop_win)
       sheep.poop_win = nil
     end
 
@@ -281,7 +120,7 @@ local function play()
         close_sheep_poop_win(sheep)
       elseif not sheep.poop_win and sheep.poop_ticks then
         -- position will be given proper values below
-        sheep.poop_win = open_float(poop_buf, {
+        sheep.poop_win = util.open_float(poop_buf, {
           zindex = 100,
           width = 1,
           height = 1,
@@ -316,7 +155,7 @@ local function play()
         sheep.death_anim_timer:stop()
       end
       vim.schedule(function()
-        close_win(sheep.win)
+        util.close_win(sheep.win)
         close_sheep_poop_win(sheep)
       end)
     end
@@ -336,7 +175,7 @@ local function play()
         return
       end
       vim.schedule(function()
-        local win = open_float(missile_buf, {
+        local win = util.open_float(missile_buf, {
           zindex = 100,
           width = 1,
           height = 2,
@@ -345,7 +184,7 @@ local function play()
         poops[next_poop_key] = { win = win, row = row, col = col }
         next_poop_key = next_poop_key + 1
         if loop.hrtime() >= poop_sound_time then
-          play_sound "poop"
+          sound.play "poop"
           poop_sound_time = loop.hrtime() + 700000000
         end
       end)
@@ -355,7 +194,7 @@ local function play()
       local win = poops[key].win
       poops[key] = nil
       vim.schedule(function()
-        close_win(win)
+        util.close_win(win)
       end)
     end
 
@@ -383,7 +222,7 @@ local function play()
       sheep.sprite_index = 5
       sheep.poop_ticks = nil
       vim.schedule(function()
-        play_sound "beh"
+        sound.play "beh"
       end)
 
       sheep.death_anim_timer = loop.new_timer()
@@ -430,7 +269,7 @@ local function play()
     local function create_sheep(row, col, hl)
       -- position and size will be given proper values by update_sheep_wins below
       local sheep = {
-        win = open_float(sheep_sprite_bufs[1], { zindex = 90, hl = hl }),
+        win = util.open_float(sheep_sprite_bufs[1], { zindex = 90, hl = hl }),
         sprite_index = 1,
         row = row,
         col = col,
@@ -486,12 +325,8 @@ local function play()
       local win = bullets[key].win
       bullets[key] = nil
       vim.schedule(function()
-        close_win(win)
+        util.close_win(win)
       end)
-    end
-
-    local function intersects(ax, ay, bx, by, bw, bh)
-      return ax >= bx and ax < (bx + bw) and ay >= by and ay < (by + bh)
     end
 
     local function update_bullet(key)
@@ -499,7 +334,7 @@ local function play()
       for _, sheep in ipairs(sheeps) do
         if not sheep.dead then
           if
-            intersects(
+            util.intersects(
               bullet.col,
               bullet.row,
               sheep.col,
@@ -543,7 +378,7 @@ local function play()
       next_bullet_key = next_bullet_key + 1
 
       vim.schedule(function()
-        bullet.win = open_float(missile_buf, {
+        bullet.win = util.open_float(missile_buf, {
           zindex = 100,
           width = 1,
           height = 2,
@@ -552,16 +387,19 @@ local function play()
           hl = "KillerBullet",
         })
         if cannon.ready_win then
-          close_win(cannon.ready_win)
+          util.close_win(cannon.ready_win)
           cannon.ready_win = nil
         end
-        play_sound "fire"
+        sound.play "fire"
       end)
 
       cannon.shoot_time = loop.hrtime() + 800000000
     end
 
-    cannon.win = open_float(cannon_buf, { zindex = 100, hl = "KillerCannon" })
+    cannon.win = util.open_float(
+      cannon_buf,
+      { zindex = 100, hl = "KillerCannon" }
+    )
     move_cannon(0) -- invalidate cannon position
 
     local update_timer = loop.new_timer()
@@ -577,7 +415,7 @@ local function play()
       end
       if not cannon.ready_win and loop.hrtime() >= cannon.shoot_time then
         vim.schedule(function()
-          cannon.ready_win = open_float(
+          cannon.ready_win = util.open_float(
             missile_buf,
             { zindex = 100, width = 1, height = 1, hl = "KillerBullet" }
           )
@@ -590,8 +428,8 @@ local function play()
     local function close()
       update_timer:stop()
       poop_timer:stop()
-      close_win(level_win)
-      close_win(cannon.win)
+      util.close_win(level_win)
+      util.close_win(cannon.win)
       for key, _ in pairs(bullets) do
         del_bullet(key)
       end
@@ -603,7 +441,7 @@ local function play()
       end
     end
 
-    level_win = open_float(
+    level_win = util.open_float(
       { " Level " .. level_num .. " " },
       { focus = true, border = "single", row = topline, hl = "KillerLevel" },
       nil, -- TODO
@@ -636,10 +474,10 @@ local function countdown()
     blink_timer:stop()
     sound_timer:stop()
     api.nvim_del_augroup_by_id(augroup)
-    close_win(win)
+    util.close_win(win)
     play()
   end
-  win, _, augroup = open_float({
+  win, _, augroup = util.open_float({
     "",
     "",
     "    Get Ready!    ",
@@ -669,7 +507,7 @@ local function countdown()
     300,
     600,
     vim.schedule_wrap(function()
-      play_sound "quack"
+      sound.play "quack"
     end)
   )
   close_timer = vim.defer_fn(close, 2400)
@@ -680,10 +518,10 @@ local function intro()
   local win, buf, augroup
 
   local function close()
-    stop_music()
+    sound.stop_music()
     hl_timer:stop()
     api.nvim_del_augroup_by_id(augroup)
-    close_win(win)
+    util.close_win(win)
   end
 
   local function start()
@@ -691,7 +529,7 @@ local function intro()
     countdown()
   end
 
-  win, buf, augroup = open_float(
+  win, buf, augroup = util.open_float(
     {
       "",
       "    The sheep are out to get you!",
@@ -715,6 +553,7 @@ local function intro()
     }
   )
 
+  local ns = api.nvim_create_namespace "killersheep"
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 1, 4, 33)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 4, 6, 7)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 5, 6, 7)
@@ -749,13 +588,13 @@ local function intro()
     end)
   )
 
-  play_music "music"
+  sound.play_music "music"
 end
 
 local M = {}
 
 function M.start()
-  detect_sound_provider()
+  sound.detect_provider()
   intro()
 end
 
