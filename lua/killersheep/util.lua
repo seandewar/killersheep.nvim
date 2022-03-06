@@ -64,14 +64,11 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
     or ""
 
   keymaps = keymaps or {}
-  local augroup = nil
+  local autocmd = nil
   if on_close then
-    local augroup_name = "killersheep.float" .. win
-    augroup = api.nvim_create_augroup(augroup_name, {})
-    api.nvim_create_autocmd(
+    autocmd = api.nvim_create_autocmd(
       { "WinLeave", "BufLeave", "VimLeavePre", "VimResized" },
       {
-        group = augroup_name,
         once = true,
         buffer = buf,
         callback = on_close,
@@ -79,17 +76,16 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
     )
     keymaps = vim.tbl_extend("keep", keymaps, {
       x = on_close,
-      ["<Esc>"] = on_close,
       [":"] = on_close,
+      ["<Esc>"] = on_close,
       ["<C-W>"] = "<Nop>", -- prevents some tampering with the window
     })
   end
-
   for lhs, rhs in pairs(keymaps) do
     vim.keymap.set("n", lhs, rhs, { buffer = buf, nowait = true })
   end
 
-  return win, buf, augroup
+  return win, buf, autocmd
 end
 
 function M.move_win(win, row, col)

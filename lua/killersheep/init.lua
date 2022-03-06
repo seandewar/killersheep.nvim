@@ -199,11 +199,11 @@ local function play()
       return update_timer:get_due_in() == 0
     end
 
-    local level_win, level_buf, augroup, blink_timer, cannon, bullets
+    local level_win, level_buf, autocmd, blink_timer, cannon, bullets
     local function close_level()
       update_timer:stop()
       poop_timer:stop()
-      api.nvim_del_augroup_by_id(augroup)
+      api.nvim_del_autocmd(autocmd)
       if blink_timer then
         blink_timer:stop()
       end
@@ -485,7 +485,7 @@ local function play()
       end
     end)
 
-    level_win, level_buf, augroup = util.open_float(
+    level_win, level_buf, autocmd = util.open_float(
       { " Level " .. level_num .. " " },
       { focus = true, border = "single", row = topline, hl = "KillerLevel" },
       quit,
@@ -506,17 +506,17 @@ end
 
 local function countdown()
   local blink_timer, sound_timer = loop.new_timer(), loop.new_timer()
-  local close_timer, win, augroup, _
+  local close_timer, win, autocmd, _
 
   local function close()
     close_timer:stop()
     blink_timer:stop()
     sound_timer:stop()
-    api.nvim_del_augroup_by_id(augroup)
+    api.nvim_del_autocmd(autocmd)
     util.close_win(win)
     play()
   end
-  win, _, augroup = util.open_float({
+  win, _, autocmd = util.open_float({
     "",
     "",
     "    Get Ready!    ",
@@ -540,12 +540,12 @@ end
 
 local function intro()
   local hl_timer = loop.new_timer()
-  local win, buf, augroup
+  local win, buf, autocmd
 
   local function close()
     sound.stop_music()
     hl_timer:stop()
-    api.nvim_del_augroup_by_id(augroup)
+    api.nvim_del_autocmd(autocmd)
     util.close_win(win)
   end
 
@@ -554,7 +554,7 @@ local function intro()
     countdown()
   end
 
-  win, buf, augroup = util.open_float(
+  win, buf, autocmd = util.open_float(
     {
       "",
       "    The sheep are out to get you!",
@@ -612,7 +612,6 @@ local function intro()
       end
     end)
   )
-
   sound.play_music "music"
 end
 
