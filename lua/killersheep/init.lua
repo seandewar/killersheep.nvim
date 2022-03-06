@@ -211,6 +211,9 @@ local function play()
       end
       util.close_win(level_win)
       util.close_win(cannon.win)
+      if cannon.ready_win then
+        util.close_win(cannon.ready_win)
+      end
       for key, _ in pairs(bullets) do
         del_missile(bullets, key)
       end
