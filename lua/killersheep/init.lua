@@ -489,7 +489,13 @@ local function play()
 
     level_win, level_buf, autocmd = util.open_float(
       { " Level " .. level_num .. " " },
-      { focus = true, border = "single", row = topline, hl = "KillerLevel" },
+      {
+        focus = true,
+        border = "single",
+        zindex = 110,
+        row = topline,
+        hl = "KillerLevel",
+      },
       quit,
       {
         l = function()
