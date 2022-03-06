@@ -152,13 +152,15 @@ local function play()
     local poop_interval = LEVEL_POOP_INTERVALS[level_num]
     local poop_timer = loop.new_timer()
     poop_timer:start(poop_interval, poop_interval, function()
-      local keys = vim.tbl_keys(sheeps)
-      vim.tbl_filter(function(key)
-        return not sheeps[key].poop_ticks
-      end, keys)
-      if #keys > 0 then
-        sheeps[keys[math.random(1, #keys)]].poop_ticks = 7
-      end
+      vim.schedule(function()
+        local keys = vim.tbl_keys(sheeps)
+        vim.tbl_filter(function(key)
+          return not sheeps[key].poop_ticks
+        end, keys)
+        if #keys > 0 then
+          sheeps[keys[1 + (vim.fn.rand() % #keys)]].poop_ticks = 7
+        end
+      end)
     end)
 
     local poops = {}
