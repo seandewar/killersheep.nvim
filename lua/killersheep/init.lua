@@ -78,7 +78,6 @@ local function play()
   local cannon_buf = util.create_buf(CANNON_SPRITE)
   local missile_buf = util.create_buf { "|", "|" }
   local poop_buf = util.create_buf { "x" }
-
   local sheep_sprite_bufs = {}
   for _, sprite_lines in ipairs(SHEEP_SPRITES) do
     sheep_sprite_bufs[#sheep_sprite_bufs + 1] = util.create_buf(sprite_lines)
@@ -150,11 +149,16 @@ local function play()
       end)
     end
 
-    local can_poop = false
-    local poop_timer = loop.new_timer()
     local poop_interval = LEVEL_POOP_INTERVALS[level_num]
+    local poop_timer = loop.new_timer()
     poop_timer:start(poop_interval, poop_interval, function()
-      can_poop = true -- next sheep that moves will poop
+      local keys = vim.tbl_keys(sheeps)
+      vim.tbl_filter(function(key)
+        return not sheeps[key].poop_ticks
+      end, keys)
+      if #keys > 0 then
+        sheeps[keys[math.random(1, #keys)]].poop_ticks = 7
+      end
     end)
 
     local poops = {}
@@ -227,12 +231,11 @@ local function play()
       util.del_buf(poop_buf)
     end
 
-    local alive_sheep_count = 0
     local function end_level()
       update_timer:stop()
       poop_timer:stop()
 
-      if alive_sheep_count <= 0 then
+      if vim.tbl_count(sheeps) <= 0 then
         vim.schedule(function()
           sound.play "win"
           if level_num >= 5 then
@@ -294,12 +297,9 @@ local function play()
       end
     end
 
-    local function kill_sheep(sheep)
-      if sheep.dead then
-        return
-      end
-      alive_sheep_count = alive_sheep_count - 1
-      sheep.dead = true
+    local function kill_sheep(key)
+      local sheep = sheeps[key]
+      sheeps[key] = nil
       sheep.sprite_index = 5
       sheep.poop_ticks = nil
       vim.schedule(function()
@@ -318,15 +318,12 @@ local function play()
         end
       end)
 
-      if alive_sheep_count <= 0 then
+      if vim.tbl_count(sheeps) <= 0 then
         end_level()
       end
     end
 
     local function update_sheep(sheep)
-      if sheep.dead then
-        return
-      end
       sheep.sprite_index = 1 + (sheep.sprite_index % 4)
       local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
       local max_clip = sprite_cols - 1
@@ -341,9 +338,6 @@ local function play()
             sheep.col + sprite_cols - 1
           )
         end
-      elseif can_poop then
-        can_poop = false
-        sheep.poop_ticks = 7
       end
 
       vim.schedule(function()
@@ -351,6 +345,7 @@ local function play()
       end)
     end
 
+    local next_sheep_key = 1
     local function place_sheep(row, col, hl)
       -- position and size will be given proper values by update_sheep_wins below
       local sheep = {
@@ -360,11 +355,10 @@ local function play()
         col = col,
         poop_ticks = nil,
         poop_win = nil,
-        dead = false,
         death_anim_timer = nil,
       }
-      sheeps[#sheeps + 1] = sheep
-      alive_sheep_count = alive_sheep_count + 1
+      sheeps[next_sheep_key] = sheep
+      next_sheep_key = next_sheep_key + 1
       update_sheep_wins(sheep)
     end
 
@@ -407,22 +401,20 @@ local function play()
 
     local function update_bullet(key)
       local bullet = bullets[key]
-      for _, sheep in ipairs(sheeps) do
-        if not sheep.dead then
-          if
-            util.intersects(
-              bullet.col,
-              bullet.row,
-              sheep.col,
-              sheep.row,
-              SHEEP_SPRITE_COLS[sheep.sprite_index],
-              #SHEEP_SPRITES[sheep.sprite_index]
-            )
-          then
-            kill_sheep(sheep)
-            del_missile(bullets, key)
-            return
-          end
+      for sheep_key, sheep in pairs(sheeps) do
+        if
+          util.intersects(
+            bullet.col,
+            bullet.row,
+            sheep.col,
+            sheep.row,
+            SHEEP_SPRITE_COLS[sheep.sprite_index],
+            #SHEEP_SPRITES[sheep.sprite_index]
+          )
+        then
+          kill_sheep(sheep_key)
+          del_missile(bullets, key)
+          return
         end
       end
 
@@ -475,11 +467,11 @@ local function play()
     move_cannon(0) -- invalidate cannon position
 
     update_timer:start(50, 50, function()
+      for _, sheep in pairs(sheeps) do
+        update_sheep(sheep)
+      end
       for key, _ in pairs(poops) do
         update_poop(key)
-      end
-      for _, sheep in ipairs(sheeps) do
-        update_sheep(sheep)
       end
       for key, _ in pairs(bullets) do
         update_bullet(key)
