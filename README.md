@@ -6,3 +6,7 @@ Install, then play by running `:KillKillKill`
 
 To enable sounds, install `afplay`, `paplay` or `cvlc` and make sure the program
 is available in your `$PATH`
+
+## Testimonials
+
+![dundargoc's review](media/dundar-review.png)
