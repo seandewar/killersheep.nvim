@@ -68,15 +68,20 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
   if on_close then
     local augroup_name = "killersheep.float" .. win
     augroup = api.nvim_create_augroup(augroup_name, {})
-    api.nvim_create_autocmd({ "WinLeave", "BufLeave", "VimLeavePre" }, {
-      group = augroup_name,
-      once = true,
-      buffer = buf,
-      callback = on_close,
-    })
+    api.nvim_create_autocmd(
+      { "WinLeave", "BufLeave", "VimLeavePre", "VimResized" },
+      {
+        group = augroup_name,
+        once = true,
+        buffer = buf,
+        callback = on_close,
+      }
+    )
     keymaps = vim.tbl_extend("keep", keymaps, {
       x = on_close,
       ["<Esc>"] = on_close,
+      [":"] = on_close,
+      ["<C-W>"] = "<Nop>", -- prevents some tampering with the window
     })
   end
 

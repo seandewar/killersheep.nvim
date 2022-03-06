@@ -97,7 +97,7 @@ local function play()
       -- clip if partially off-screen
       local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
       local width = sprite_cols
-      local anchor_right
+      local anchor_right = nil
       if sheep.col < 0 then
         width = width + sheep.col
         anchor_right = true
@@ -125,7 +125,7 @@ local function play()
         relative = "editor",
         row = sheep.row,
         col = math.max(0, sheep.col),
-        width = width,
+        width = math.max(1, width),
         height = #SHEEP_SPRITES[sheep.sprite_index],
       })
       api.nvim_win_set_buf(sheep.win, sheep_sprite_bufs[sheep.sprite_index])
@@ -199,8 +199,7 @@ local function play()
       return update_timer:get_due_in() == 0
     end
 
-    local bullets = {}
-    local level_win, level_buf, augroup, blink_timer, cannon
+    local level_win, level_buf, augroup, blink_timer, cannon, bullets
     local function close_level()
       update_timer:stop()
       poop_timer:stop()
@@ -231,11 +230,11 @@ local function play()
       util.del_buf(poop_buf)
     end
 
-    local function end_level()
+    local function end_level(won)
       update_timer:stop()
       poop_timer:stop()
 
-      if vim.tbl_count(sheeps) <= 0 then
+      if won then
         vim.schedule(function()
           sound.play "win"
           if level_num >= 5 then
@@ -283,7 +282,7 @@ local function play()
         )
       then
         del_missile(poops, key)
-        end_level()
+        end_level(false)
         return
       end
 
@@ -319,7 +318,7 @@ local function play()
       end)
 
       if vim.tbl_count(sheeps) <= 0 then
-        end_level()
+        end_level(true)
       end
     end
 
@@ -347,7 +346,6 @@ local function play()
 
     local next_sheep_key = 1
     local function place_sheep(row, col, hl)
-      -- position and size will be given proper values by update_sheep_wins below
       local sheep = {
         win = util.open_float(sheep_sprite_bufs[1], { zindex = 90, hl = hl }),
         sprite_index = 1,
@@ -359,7 +357,7 @@ local function play()
       }
       sheeps[next_sheep_key] = sheep
       next_sheep_key = next_sheep_key + 1
-      update_sheep_wins(sheep)
+      update_sheep_wins(sheep) -- invalidate sheep size
     end
 
     place_sheep(topline, 5, "KillerSheep")
@@ -375,7 +373,7 @@ local function play()
 
     cannon = {
       row = lines - vim.o.cmdheight - #CANNON_SPRITE,
-      col = math.floor((columns + CANNON_SPRITE_COLS) / 2),
+      col = math.floor((columns - 1 + CANNON_SPRITE_COLS) / 2),
       shoot_time = 0,
       win = nil,
       ready_win = nil,
@@ -399,6 +397,7 @@ local function play()
       end
     end
 
+    bullets = {}
     local function update_bullet(key)
       local bullet = bullets[key]
       for sheep_key, sheep in pairs(sheeps) do
@@ -440,6 +439,7 @@ local function play()
       }
       bullets[next_bullet_key] = bullet
       next_bullet_key = next_bullet_key + 1
+      cannon.shoot_time = loop.hrtime() + 800000000
 
       vim.schedule(function()
         bullet.win = util.open_float(missile_buf, {
@@ -456,8 +456,6 @@ local function play()
         end
         sound.play "fire"
       end)
-
-      cannon.shoot_time = loop.hrtime() + 800000000
     end
 
     cannon.win = util.open_float(
@@ -565,7 +563,7 @@ local function intro()
       "      h       move cannon left",
       "      l       move cannon right",
       "   <Space>    fire",
-      "    <Esc>     quit",
+      "    <Esc>     quit (colon also works)",
       "",
       " Now press  s  to start or  x  to exit ",
       "",
@@ -621,6 +619,14 @@ end
 local M = {}
 
 function M.start()
+  if vim.o.columns < 60 or vim.o.lines < 35 then
+    api.nvim_echo({
+      { "Screen size must be at least 60x35 cells to play! ", "ErrorMsg" },
+      { ("(size is %dx%d)"):format(vim.o.columns, vim.o.lines) },
+    }, true, {})
+    return
+  end
+
   sound.detect_provider()
   intro()
 end
