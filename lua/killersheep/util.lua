@@ -42,6 +42,7 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
   config = vim.tbl_extend("keep", config or {}, {
     focus = false,
     hl = nil,
+    noautocmd = true,
     relative = "editor",
     border = "none",
     style = "minimal",
@@ -84,6 +85,16 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
   end
 
   return win, buf, augroup
+end
+
+function M.move_win(win, row, col)
+  if win and api.nvim_win_is_valid(win) then
+    api.nvim_win_set_config(win, {
+      relative = "editor",
+      row = row,
+      col = col,
+    })
+  end
 end
 
 function M.close_win(win)

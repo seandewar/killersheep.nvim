@@ -81,8 +81,7 @@ local function play()
 
   local sheep_sprite_bufs = {}
   for _, sprite_lines in ipairs(SHEEP_SPRITES) do
-    local buf = util.create_buf(sprite_lines)
-    sheep_sprite_bufs[#sheep_sprite_bufs + 1] = buf
+    sheep_sprite_bufs[#sheep_sprite_bufs + 1] = util.create_buf(sprite_lines)
   end
 
   local function level(level_num)
@@ -93,6 +92,9 @@ local function play()
     end
 
     local function update_sheep_wins(sheep)
+      if not api.nvim_win_is_valid(sheep.win) then
+        return
+      end
       -- clip if partially off-screen
       local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
       local width = sprite_cols
@@ -134,11 +136,7 @@ local function play()
       end
 
       if sheep.poop_win then
-        api.nvim_win_set_config(sheep.poop_win, {
-          relative = "editor",
-          row = sheep.row + 1,
-          col = sheep.col + sprite_cols,
-        })
+        util.move_win(sheep.poop_win, sheep.row + 1, sheep.col + sprite_cols)
       end
     end
 
@@ -162,7 +160,7 @@ local function play()
     local poops = {}
     local next_poop_key = 1
     local poop_sound_time = 0
-    local function create_poop(row, col)
+    local function place_poop(row, col)
       if row < 0 or col < 0 or row >= lines or col >= columns then
         return
       end
@@ -171,6 +169,8 @@ local function play()
           zindex = 100,
           width = 1,
           height = 2,
+          row = row,
+          col = col,
           hl = "KillerPoop",
         })
         poops[next_poop_key] = { win = win, row = row, col = col }
@@ -182,9 +182,9 @@ local function play()
       end)
     end
 
-    local function del_poop(key)
-      local win = poops[key].win
-      poops[key] = nil
+    local function del_missile(table, key)
+      local win = table[key].win
+      table[key] = nil
       vim.schedule(function()
         util.close_win(win)
       end)
@@ -196,28 +196,21 @@ local function play()
     end
 
     local bullets = {}
-    local function del_bullet(key)
-      local win = bullets[key].win
-      bullets[key] = nil
-      vim.schedule(function()
-        util.close_win(win)
-      end)
-    end
-
-    local level_win, level_buf, blink_timer, cannon
-    local function close()
+    local level_win, level_buf, augroup, blink_timer, cannon
+    local function close_level()
       update_timer:stop()
       poop_timer:stop()
+      api.nvim_del_augroup_by_id(augroup)
       if blink_timer then
         blink_timer:stop()
       end
       util.close_win(level_win)
       util.close_win(cannon.win)
       for key, _ in pairs(bullets) do
-        del_bullet(key)
+        del_missile(bullets, key)
       end
       for key, _ in pairs(poops) do
-        del_poop(key)
+        del_missile(poops, key)
       end
       for _, sheep in ipairs(sheeps) do
         del_sheep(sheep)
@@ -225,7 +218,7 @@ local function play()
     end
 
     local function quit()
-      close()
+      close_level()
       for _, buf in ipairs(sheep_sprite_bufs) do
         util.del_buf(buf)
       end
@@ -262,7 +255,7 @@ local function play()
           vim.bo[level_buf].modifiable = false
           blink_timer = util.blink_win(level_win, "KillerLevelX", "KillerLevel")
           vim.defer_fn(function()
-            close()
+            close_level()
             level(level_num + 1)
           end, 2000)
         end)
@@ -286,21 +279,17 @@ local function play()
           #CANNON_SPRITE
         )
       then
-        del_poop(key)
+        del_missile(poops, key)
         end_level()
         return
       end
 
       poop.row = poop.row + 1
       if poop.row >= lines - 1 then
-        del_poop(key)
+        del_missile(poops, key)
       else
         vim.schedule(function()
-          api.nvim_win_set_config(poop.win, {
-            relative = "editor",
-            row = poop.row,
-            col = poop.col,
-          })
+          util.move_win(poop.win, poop.row, poop.col)
         end)
       end
     end
@@ -347,7 +336,7 @@ local function play()
         sheep.poop_ticks = sheep.poop_ticks - 1
         if sheep.poop_ticks < 1 then
           sheep.poop_ticks = nil
-          create_poop(
+          place_poop(
             sheep.row + #SHEEP_SPRITES[sheep.sprite_index] - 1,
             sheep.col + sprite_cols - 1
           )
@@ -362,7 +351,7 @@ local function play()
       end)
     end
 
-    local function create_sheep(row, col, hl)
+    local function place_sheep(row, col, hl)
       -- position and size will be given proper values by update_sheep_wins below
       local sheep = {
         win = util.open_float(sheep_sprite_bufs[1], { zindex = 90, hl = hl }),
@@ -379,16 +368,16 @@ local function play()
       update_sheep_wins(sheep)
     end
 
-    create_sheep(topline, 5, "KillerSheep")
-    create_sheep(topline + 5, 75, "KillerSheep2")
-    create_sheep(topline + 7, 35, "KillerSheep")
-    create_sheep(topline + 10, 15, "KillerSheep")
-    create_sheep(topline + 12, 70, "KillerSheep")
-    create_sheep(topline + 15, 55, "KillerSheep2")
-    create_sheep(topline + 20, 15, "KillerSheep2")
-    create_sheep(topline + 21, 30, "KillerSheep")
-    create_sheep(topline + 22, 60, "KillerSheep2")
-    create_sheep(topline + 28, 0, "KillerSheep")
+    place_sheep(topline, 5, "KillerSheep")
+    place_sheep(topline + 5, 75, "KillerSheep2")
+    place_sheep(topline + 7, 35, "KillerSheep")
+    place_sheep(topline + 10, 15, "KillerSheep")
+    place_sheep(topline + 12, 70, "KillerSheep")
+    place_sheep(topline + 15, 55, "KillerSheep2")
+    place_sheep(topline + 20, 15, "KillerSheep2")
+    place_sheep(topline + 21, 30, "KillerSheep")
+    place_sheep(topline + 22, 60, "KillerSheep2")
+    place_sheep(topline + 28, 0, "KillerSheep")
 
     cannon = {
       row = lines - vim.o.cmdheight - #CANNON_SPRITE,
@@ -398,18 +387,12 @@ local function play()
       ready_win = nil,
     }
     local function update_cannon_wins()
-      api.nvim_win_set_config(cannon.win, {
-        relative = "editor",
-        row = cannon.row,
-        col = cannon.col,
-      })
-      if cannon.ready_win then
-        api.nvim_win_set_config(cannon.ready_win, {
-          relative = "editor",
-          row = cannon.row - 1,
-          col = cannon.col + math.floor(CANNON_SPRITE_COLS / 2),
-        })
-      end
+      util.move_win(cannon.win, cannon.row, cannon.col)
+      util.move_win(
+        cannon.ready_win,
+        cannon.row - 1,
+        cannon.col + math.floor(CANNON_SPRITE_COLS / 2)
+      )
     end
 
     local function move_cannon(offset)
@@ -437,7 +420,7 @@ local function play()
             )
           then
             kill_sheep(sheep)
-            del_bullet(key)
+            del_missile(bullets, key)
             return
           end
         end
@@ -445,14 +428,10 @@ local function play()
 
       bullet.row = bullet.row - 2
       if bullet.row < 0 then
-        del_bullet(key)
+        del_missile(bullets, key)
       else
         vim.schedule(function()
-          api.nvim_win_set_config(bullet.win, {
-            relative = "editor",
-            row = bullet.row,
-            col = bullet.col,
-          })
+          util.move_win(bullet.win, bullet.row, bullet.col)
         end)
       end
     end
@@ -516,10 +495,10 @@ local function play()
       end
     end)
 
-    level_win, level_buf = util.open_float(
+    level_win, level_buf, augroup = util.open_float(
       { " Level " .. level_num .. " " },
       { focus = true, border = "single", row = topline, hl = "KillerLevel" },
-      nil, -- TODO
+      quit,
       {
         l = function()
           move_cannon(2)
