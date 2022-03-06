@@ -1,4 +1,4 @@
-# killersheep.nvim
+![killersheep.nvim](media/killersheep.png)
 
 A port of [killersheep](https://github.com/vim/killersheep) for Neovim v0.7+
 
