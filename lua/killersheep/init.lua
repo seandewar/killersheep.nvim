@@ -133,10 +133,7 @@ local function play()
         local col = anchor_right and (sprite_cols - 1) or 0
         api.nvim_win_set_cursor(sheep.win, { 1, col })
       end
-
-      if sheep.poop_win then
-        util.move_win(sheep.poop_win, sheep.row + 1, sheep.col + sprite_cols)
-      end
+      util.move_win(sheep.poop_win, sheep.row + 1, sheep.col + sprite_cols)
     end
 
     local function del_sheep(sheep)
@@ -211,9 +208,7 @@ local function play()
       end
       util.close_win(level_win)
       util.close_win(cannon.win)
-      if cannon.ready_win then
-        util.close_win(cannon.ready_win)
-      end
+      util.close_win(cannon.ready_win)
       for key, _ in pairs(bullets) do
         del_missile(bullets, key)
       end
@@ -455,10 +450,8 @@ local function play()
           col = bullet.col,
           hl = "KillerBullet",
         })
-        if cannon.ready_win then
-          util.close_win(cannon.ready_win)
-          cannon.ready_win = nil
-        end
+        util.close_win(cannon.ready_win)
+        cannon.ready_win = nil
         sound.play "fire"
       end)
     end
