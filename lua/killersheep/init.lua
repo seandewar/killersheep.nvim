@@ -150,10 +150,11 @@ local function play()
     local poop_timer = loop.new_timer()
     poop_timer:start(poop_interval, poop_interval, function()
       vim.schedule(function()
-        local keys = vim.tbl_keys(sheeps)
-        vim.tbl_filter(function(key)
+        local keys = vim.tbl_filter(function(key)
           return not sheeps[key].poop_ticks
-        end, keys)
+        end, vim.tbl_keys(
+          sheeps
+        ))
         if #keys > 0 then
           sheeps[keys[1 + (vim.fn.rand() % #keys)]].poop_ticks = 7
         end
