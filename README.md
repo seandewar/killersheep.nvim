@@ -1,6 +1,7 @@
 ![killersheep.nvim](media/killersheep.png)
 
 A port of [killersheep](https://github.com/vim/killersheep) for Neovim v0.7+
+_(with unnecessary gore!)_
 
 Install, then play by running `:KillKillKill`
 
