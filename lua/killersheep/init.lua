@@ -1,4 +1,5 @@
 local api = vim.api
+local fn = vim.fn
 local loop = vim.loop
 
 local sound = require "killersheep.sound"
@@ -7,6 +8,7 @@ local util = require "killersheep.util"
 util.define_hls {
   SheepTitle = { cterm = { bold = true }, bold = true },
   introHl = { ctermbg = "cyan", bg = "cyan" },
+  KillerBlood = { ctermbg = "red", bg = "red" },
   KillerCannon = { ctermfg = "blue", fg = "blue" },
   KillerBullet = { ctermbg = "red", bg = "red" },
   KillerSheep = { ctermfg = "green", fg = "green" },
@@ -156,7 +158,7 @@ local function play()
           sheeps
         ))
         if #keys > 0 then
-          sheeps[keys[1 + (vim.fn.rand() % #keys)]].poop_ticks = 7
+          sheeps[keys[1 + (fn.rand() % #keys)]].poop_ticks = 7
         end
       end)
     end)
@@ -199,7 +201,7 @@ local function play()
       return update_timer:get_due_in() == 0
     end
 
-    local level_win, level_buf, autocmd, blink_timer, cannon, bullets
+    local level_win, level_buf, autocmd, blink_timer, cannon, bullets, bloods
     local function close_level()
       update_timer:stop()
       poop_timer:stop()
@@ -218,6 +220,9 @@ local function play()
       end
       for _, sheep in ipairs(sheeps) do
         del_sheep(sheep)
+      end
+      for _, blood in pairs(bloods) do
+        util.close_win(blood.win)
       end
     end
 
@@ -297,13 +302,66 @@ local function play()
       end
     end
 
+    bloods = {}
+    local next_blood_key = 1
+    local function place_gore(row, col, width, height, intensity)
+      for _ = 1, intensity do
+        local x, y = row + fn.rand() % height, col + fn.rand() % width
+        if x >= 0 and y >= 0 and x < lines and y < columns then
+          bloods[next_blood_key] = {
+            y = x,
+            x = y,
+            vx = (fn.rand() % 4) - 2,
+            vy = (fn.rand() % 4) - 2,
+            win = util.open_float(
+              poop_buf,
+              { zindex = 95, hl = "KillerBlood", row = x, col = y }
+            ),
+          }
+          next_blood_key = next_blood_key + 1
+        end
+      end
+    end
+
+    local function update_blood(key)
+      local blood = bloods[key]
+      blood.y = blood.y + blood.vy
+      blood.x = blood.x + blood.vx
+      blood.vy = blood.vy + 0.3
+      if
+        blood.x < 0
+        or blood.y < 0
+        or blood.x >= columns
+        or blood.y >= lines
+      then
+        local win = blood.win
+        bloods[key] = nil
+        vim.schedule(function()
+          util.close_win(win)
+        end)
+        return
+      end
+      vim.schedule(function()
+        util.move_win(blood.win, blood.y, blood.x)
+      end)
+    end
+
     local function kill_sheep(key)
       local sheep = sheeps[key]
+      local sprite_rows = #SHEEP_SPRITES[sheep.sprite_index]
+      local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
       sheeps[key] = nil
       sheep.sprite_index = 5
       sheep.poop_ticks = nil
       vim.schedule(function()
         sound.play "beh"
+        place_gore(
+          sheep.row,
+          sheep.col,
+          sprite_cols,
+          sprite_rows,
+          6 + fn.rand() % 7
+        )
       end)
 
       sheep.death_anim_timer = loop.new_timer()
@@ -472,6 +530,9 @@ local function play()
       end
       for key, _ in pairs(bullets) do
         update_bullet(key)
+      end
+      for key, _ in pairs(bloods) do
+        update_blood(key)
       end
       if not cannon.ready_win and loop.hrtime() >= cannon.shoot_time then
         vim.schedule(function()
