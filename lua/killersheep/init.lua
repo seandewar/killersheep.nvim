@@ -189,10 +189,11 @@ local function play()
     end
 
     local function del_missile(table, key)
-      local win = table[key].win
-      table[key] = nil
       vim.schedule(function()
-        util.close_win(win)
+        if table[key] then
+          util.close_win(table[key].win)
+          table[key] = nil
+        end
       end)
     end
 
