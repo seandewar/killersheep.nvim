@@ -30,7 +30,7 @@ if vim.fn.has "nvim-0.7" == 0 then
   return
 end
 
-api.nvim_add_user_command("KillKillKill", function(_)
+api.nvim_create_user_command("KillKillKill", function(_)
   require("killersheep").start()
 end, {
   desc = "Play Killersheep",
