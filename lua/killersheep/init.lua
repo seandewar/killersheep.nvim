@@ -87,15 +87,16 @@ local function play()
 
   local function level(level_num)
     local sheeps = {}
-    local function close_sheep_poop_win(sheep)
-      util.close_win(sheep.poop_win)
-      sheep.poop_win = nil
-    end
-
     local function update_sheep_wins(sheep)
-      if not api.nvim_win_is_valid(sheep.win) then
+      -- This is vim.schedule()d, so it's possible that this is called after the
+      -- death animation has already finished.
+      if
+        not api.nvim_win_is_valid(sheep.win)
+        or sheep.sprite_index > #SHEEP_SPRITES
+      then
         return
       end
+
       -- clip if partially off-screen
       local sprite_cols = SHEEP_SPRITE_COLS[sheep.sprite_index]
       local width = sprite_cols
@@ -112,7 +113,8 @@ local function play()
         sheep.poop_win
         and (not sheep.poop_ticks or sheep.col + sprite_cols >= columns)
       then
-        close_sheep_poop_win(sheep)
+        util.close_win(sheep.poop_win)
+        sheep.poop_win = nil
       elseif not sheep.poop_win and sheep.poop_ticks then
         -- position will be given proper values below
         sheep.poop_win = util.open_float(poop_buf, {
@@ -133,7 +135,7 @@ local function play()
       local winhl = vim.wo[sheep.win].winhighlight
       api.nvim_win_set_buf(sheep.win, sheep_sprite_bufs[sheep.sprite_index])
       -- Switching buffers can change our window-local options. This is super
-      -- crazy dumb inherited from Vim. See `:h local-options`.
+      -- crazy dumb behaviour inherited from Vim. See `:h local-options`.
       vim.wo[sheep.win].winhighlight = winhl
 
       if anchor_right ~= nil then
@@ -149,7 +151,7 @@ local function play()
       end
       vim.schedule(function()
         util.close_win(sheep.win)
-        close_sheep_poop_win(sheep)
+        util.close_win(sheep.poop_win)
       end)
     end
 
@@ -175,17 +177,19 @@ local function play()
       if row < 0 or col < 0 or row >= lines or col >= columns then
         return
       end
+      local poop = { win = nil, row = row, col = col }
+      poops[next_poop_key] = poop
+      next_poop_key = next_poop_key + 1
+
       vim.schedule(function()
-        local win = util.open_float(missile_buf, {
+        poop.win = util.open_float(missile_buf, {
           zindex = 100,
           width = 1,
           height = 2,
-          row = row,
-          col = col,
+          row = poop.row,
+          col = poop.col,
           hl = "KillerPoop",
         })
-        poops[next_poop_key] = { win = win, row = row, col = col }
-        next_poop_key = next_poop_key + 1
         if loop.hrtime() >= poop_sound_time then
           sound.play "poop"
           poop_sound_time = loop.hrtime() + 700000000
@@ -194,12 +198,13 @@ local function play()
     end
 
     local function del_missile(table, key)
-      vim.schedule(function()
-        if table[key] then
-          util.close_win(table[key].win)
-          table[key] = nil
-        end
-      end)
+      local missile = table[key]
+      if missile then
+        table[key] = nil
+        vim.schedule(function()
+          util.close_win(missile.win)
+        end)
+      end
     end
 
     local update_timer = loop.new_timer()
@@ -340,10 +345,9 @@ local function play()
         or blood.x >= columns
         or blood.y >= lines
       then
-        local win = blood.win
         bloods[key] = nil
         vim.schedule(function()
-          util.close_win(win)
+          util.close_win(blood.win)
         end)
         return
       end
@@ -442,6 +446,7 @@ local function play()
       shoot_time = 0,
       win = nil,
       ready_win = nil,
+      ready_win_scheduled = false,
     }
     local function update_cannon_wins()
       util.move_win(cannon.win, cannon.row, cannon.col)
@@ -515,8 +520,6 @@ local function play()
           col = bullet.col,
           hl = "KillerBullet",
         })
-        util.close_win(cannon.ready_win)
-        cannon.ready_win = nil
         sound.play "fire"
       end)
     end
@@ -540,14 +543,26 @@ local function play()
       for key, _ in pairs(bloods) do
         update_blood(key)
       end
-      if not cannon.ready_win and loop.hrtime() >= cannon.shoot_time then
-        vim.schedule(function()
-          cannon.ready_win = util.open_float(
-            missile_buf,
-            { zindex = 100, width = 1, height = 1, hl = "KillerBullet" }
-          )
-          update_cannon_wins() -- invalidate bullet position
-        end)
+
+      if loop.hrtime() >= cannon.shoot_time then
+        if not cannon.ready_win_scheduled then
+          cannon.ready_win_scheduled = true
+          vim.schedule(function()
+            cannon.ready_win = util.open_float(
+              missile_buf,
+              { zindex = 100, width = 1, height = 1, hl = "KillerBullet" }
+            )
+            update_cannon_wins() -- invalidate bullet position
+          end)
+        end
+      else
+        if cannon.ready_win_scheduled then
+          cannon.ready_win_scheduled = false
+          vim.schedule(function()
+            util.close_win(cannon.ready_win)
+            cannon.ready_win = nil
+          end)
+        end
       end
     end)
 

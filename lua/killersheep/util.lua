@@ -27,6 +27,9 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
   local buf, lines
   if type(buf_or_lines) == "number" then
     buf = buf_or_lines
+    if not api.nvim_buf_is_valid(buf) then
+      return nil, nil, nil
+    end
     lines = api.nvim_buf_get_lines(buf, 0, -1, true)
   else
     lines = buf_or_lines
