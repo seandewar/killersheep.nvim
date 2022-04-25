@@ -130,7 +130,12 @@ local function play()
         width = math.max(1, width),
         height = #SHEEP_SPRITES[sheep.sprite_index],
       })
+      local winhl = vim.wo[sheep.win].winhighlight
       api.nvim_win_set_buf(sheep.win, sheep_sprite_bufs[sheep.sprite_index])
+      -- Switching buffers can change our window-local options. This is super
+      -- crazy dumb inherited from Vim. See `:h local-options`.
+      vim.wo[sheep.win].winhighlight = winhl
+
       if anchor_right ~= nil then
         local col = anchor_right and (sprite_cols - 1) or 0
         api.nvim_win_set_cursor(sheep.win, { 1, col })
