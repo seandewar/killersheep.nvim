@@ -18,7 +18,7 @@ local DEFAULT_CONFIG = {
 local config
 
 function M.setup(conf)
-  config = vim.tbl_extend("force", DEFAULT_CONFIG, conf or {})
+  config = vim.tbl_deep_extend("force", DEFAULT_CONFIG, conf or {})
 end
 
 util.define_hls {
