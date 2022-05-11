@@ -5,6 +5,22 @@ local loop = vim.loop
 local sound = require "killersheep.sound"
 local util = require "killersheep.util"
 
+local M = {}
+
+local DEFAULT_CONFIG = {
+  keymaps = {
+    move_left = "h",
+    move_right = "l",
+    shoot = "<Space>",
+  },
+  gore = true,
+}
+local config
+
+function M.setup(conf)
+  config = vim.tbl_extend("force", DEFAULT_CONFIG, conf or {})
+end
+
 util.define_hls {
   SheepTitle = { cterm = { bold = true }, bold = true },
   introHl = { ctermbg = "cyan", bg = "cyan" },
@@ -365,13 +381,15 @@ local function play()
       sheep.poop_ticks = nil
       vim.schedule(function()
         sound.play "beh"
-        place_gore(
-          sheep.row,
-          sheep.col,
-          sprite_cols,
-          sprite_rows,
-          6 + fn.rand() % 7
-        )
+        if config.gore then
+          place_gore(
+            sheep.row,
+            sheep.col,
+            sprite_cols,
+            sprite_rows,
+            6 + fn.rand() % 7
+          )
+        end
       end)
 
       sheep.death_anim_timer = loop.new_timer()
@@ -577,13 +595,13 @@ local function play()
       },
       quit,
       {
-        l = function()
-          move_cannon(2)
-        end,
-        h = function()
+        [config.keymaps.move_left] = function()
           move_cannon(-2)
         end,
-        ["<Space>"] = shoot_cannon,
+        [config.keymaps.move_right] = function()
+          move_cannon(2)
+        end,
+        [config.keymaps.shoot] = shoot_cannon,
       }
     )
   end
@@ -641,16 +659,45 @@ local function intro()
     countdown()
   end
 
+  local function keymap_line(key, desc)
+    local pad = (math.max(12, #key) - #key) / 2
+    local lpad, rpad = math.floor(pad), math.ceil(pad)
+    local line = (" %s%s%s %s"):format(
+      (" "):rep(lpad),
+      key,
+      (" "):rep(rpad),
+      desc
+    )
+    return line, 1 + lpad, 1 + lpad + #key
+  end
+
+  local left_line, left_c1, left_c2 = keymap_line(
+    config.keymaps.move_left,
+    "move cannon left"
+  )
+  local right_line, right_c1, right_c2 = keymap_line(
+    config.keymaps.move_right,
+    "move cannon right"
+  )
+  local shoot_line, shoot_c1, shoot_c2 = keymap_line(
+    config.keymaps.shoot,
+    "fire"
+  )
+  local quit_line, quit_c1, quit_c2 = keymap_line(
+    "<Esc>",
+    "quit (colon also works)"
+  )
+
   win, buf, autocmd = util.open_float(
     {
       "",
       "    The sheep are out to get you!",
       "",
       " In the game:",
-      "      h       move cannon left",
-      "      l       move cannon right",
-      "   <Space>    fire",
-      "    <Esc>     quit (colon also works)",
+      left_line,
+      right_line,
+      shoot_line,
+      quit_line,
       "",
       " Now press  s  to start or  x  to exit ",
       "",
@@ -667,10 +714,10 @@ local function intro()
 
   local ns = api.nvim_create_namespace "killersheep"
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 1, 4, 33)
-  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 4, 6, 7)
-  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 5, 6, 7)
-  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 6, 3, 10)
-  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 7, 4, 9)
+  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 4, left_c1, left_c2)
+  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 5, right_c1, right_c2)
+  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 6, shoot_c1, shoot_c2)
+  api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 7, quit_c1, quit_c2)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 12, 13)
   api.nvim_buf_add_highlight(buf, ns, "SheepTitle", 9, 28, 29)
 
@@ -702,9 +749,11 @@ local function intro()
   sound.play_music "music"
 end
 
-local M = {}
-
 function M.start()
+  if not config then
+    M.setup()
+  end
+
   if vim.o.columns < 60 or vim.o.lines < 35 then
     api.nvim_echo({
       { "Screen size must be at least 60x35 cells to play! ", "ErrorMsg" },
