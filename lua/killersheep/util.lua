@@ -60,11 +60,9 @@ function M.open_float(buf_or_lines, config, on_close, keymaps)
 
   local win = api.nvim_open_win(buf, focus, config)
   vim.wo[win].winhighlight = hl
-      and ("NormalFloat:%s,FloatBorder:%s"):format(
-        hl,
-        hl
-      )
+      and ("NormalFloat:%s,FloatBorder:%s"):format(hl, hl)
     or ""
+  vim.wo[win].wrap = false
 
   keymaps = keymaps or {}
   local autocmd = nil
